@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200" role="img" aria-label="Stealth">
+<rect width="300" height="200" rx="40" fill="#4A4458"/>
+<rect x="194" y="26" width="76" height="76" rx="26" fill="#CCC2DC" transform="rotate(14 232 64)"/>
+<text x="28" y="124" font-family="'Google Sans','Roboto','Segoe UI',system-ui,sans-serif" font-size="38" font-weight="800" fill="#E8DEF8">Stealth</text>
+<text x="28" y="160" font-family="'Google Sans','Roboto','Segoe UI',system-ui,sans-serif" font-size="20" font-weight="500" fill="#E8DEF8" opacity="0.85">anti-probe mask</text>
+</svg>

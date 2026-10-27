@@ -1,0 +1,15 @@
+// ypwee v0.3 — universal proxy core (single-thread poll loop)
+load std.io: print, eprint
+load .config: load_config
+load .proxy: Proxy
+
+fun main() {
+    set argv = args()
+    if argv.len() < 2 {
+        print("ypwee v0.3 — SOCKS5 + HTTP proxy core\nusage: ypwee <config>\n")
+        return
+    }
+    set cfg = load_config(argv[1])
+    set p = init Proxy(cfg)
+    p.run()
+}

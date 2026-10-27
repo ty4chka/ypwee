@@ -1,0 +1,53 @@
+// ypwee — duplex relay on SocketPoller (single thread)
+load std.net: SocketPoller, POLL_READABLE
+load std.net.tcp: TcpStream
+load std.io: eprint
+
+static KEY_CLIENT: uint64 = 1u64
+static KEY_UPSTREAM: uint64 = 2u64
+
+public fun relay_duplex(ref client: TcpStream, ref upstream: TcpStream) {
+    set poller = init SocketPoller()
+    poller.add_stream(ref client, POLL_READABLE, KEY_CLIENT)
+    poller.add_stream(ref upstream, POLL_READABLE, KEY_UPSTREAM)
+
+    set client_open = true
+    set upstream_open = true
+    set idle_ticks: int64 = 0
+
+    while true {
+        if !client_open && !upstream_open { break }
+        if idle_ticks > 7200 { break }
+        set events = poller.wait(100)
+        if events.len() == 0 {
+            rewrite idle_ticks += 1
+            continue
+        }
+        rewrite idle_ticks = 0
+        for i in 0..events.len() {
+            set ev = events[i]
+            if ev.key == KEY_CLIENT && ev.readable && client_open {
+                set chunk = client.read(65536)
+                if chunk.len() == 0 {
+                    rewrite client_open = false
+                    poller.remove_stream(client)
+                } else {
+                    upstream.write(chunk)
+                    upstream.flush()
+                }
+            }
+            if ev.key == KEY_UPSTREAM && ev.readable && upstream_open {
+                set chunk = upstream.read(65536)
+                if chunk.len() == 0 {
+                    rewrite upstream_open = false
+                    poller.remove_stream(upstream)
+                } else {
+                    client.write(chunk)
+                    client.flush()
+                }
+            }
+        }
+    }
+    upstream.close()
+    client.close()
+}

@@ -1,0 +1,18 @@
+# ── ypwee example config ──
+# mode: socks5 | http | mtproto | all
+mode: all
+
+socks5: 0.0.0.0:1080
+http: 0.0.0.0:8080
+mtproto: 0.0.0.0:443
+
+# Telegram production DCs:
+#   DC1 149.154.175.50:443   DC2 149.154.167.40:443 (Miami)
+#   DC3 149.154.175.100:443  DC4 149.154.167.51:443
+#   DC5 91.108.56.130:443
+telegram-dc: 149.154.167.40:443
+
+# MTProto secret: 16 bytes hex (classic), 17 with dd-prefix (secure),
+# 32+ with ee-prefix (faketls). Generate: openssl rand -hex 16
+secret:
+tls-domain: www.cloudflare.com

@@ -1,0 +1,46 @@
+// ypwee — byte-buffer helpers поверх bytes (binary-safe протоколы)
+public fun buf_new(cap: int64) -> bytes {
+    set b: bytes = []
+    return b
+}
+
+public fun buf_u8(v: uint8) -> bytes {
+    set b: bytes = []
+    b.push(v)
+    return b
+}
+
+//ugendaki — u16 big-endian
+public fun buf_u16_be(v: int64) -> bytes {
+    set b: bytes = []
+    b.push(cast((v / 256) % 256, "uint8"))
+    b.push(cast(v % 256, "uint8"))
+    return b
+}
+
+public fun buf_u32_be(v: int64) -> bytes {
+    set b: bytes = []
+    b.push(cast((v / 16777216) % 256, "uint8"))
+    b.push(cast((v / 65536) % 256, "uint8"))
+    b.push(cast((v / 256) % 256, "uint8"))
+    b.push(cast(v % 256, "uint8"))
+    return b
+}
+
+// ровно n байт из потока (short-read safe) — binary handshake
+public fun read_exact(ref s: TcpStream, n: int64) -> bytes? {
+    set out: bytes = []
+    set guard = 0
+    while out.len() < n {
+        set chunk = s.read(n - out.len())
+        if chunk.len() == 0 {
+            set guard2 = guard + 1
+            if guard2 > 3 { return null }
+        }
+        set bb = chunk.to_bytes()
+        for b in bb { out.push(b) }
+        set guard = guard + 1
+        if guard > 32 { return null }
+    }
+    return out
+}

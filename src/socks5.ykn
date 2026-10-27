@@ -1,0 +1,126 @@
+// ypwee — SOCKS5 server (RFC 1928), no-auth, CONNECT
+load std.net.tcp: TcpListener, TcpStream, tcp_listen, tcp_connect
+load std.io: print, eprint
+load .config: Config
+load .buffer: read_exact
+load .relay: relay_duplex
+load .strutil: i64_to_string
+
+public class Socks5Server {
+    cfg: Config
+
+    fun init(cfg: Config) {
+        rewrite this.cfg = cfg
+    }
+
+    fun reply(ref client: TcpStream, code: int64) {
+        set r: bytes = []
+        r.push(5u8)
+        r.push(cast(code, "uint8"))
+        r.push(0u8)
+        r.push(0u8)
+        r.push(0u8)
+        r.push(0u8)
+        r.push(0u8)
+        r.push(0u8)
+        r.push(0u8)
+        r.push(0u8)
+        client.write_bytes(r.as_ptr(), r.len())
+        client.flush()
+    }
+
+    fun run() {
+        set l = tcp_listen(this.cfg.socks5_addr)
+        print("[socks5] listening on " + this.cfg.socks5_addr + "\n")
+        while true {
+            sus {
+                set client = l.accept()
+                this.handshake(client)
+            } catch {
+                eprint("[socks5] accept error\n")
+            }
+        }
+    }
+
+    fun handshake(ref client: TcpStream) {
+        set head = read_exact(ref client, 2)
+        if head == null { client.close(); return }
+        if head[0] != 5u8 { client.close(); return }
+        set nmethods = cast(head[1], "int64")
+        if nmethods < 1 {
+            this.reply(client, 255)
+            client.close()
+            return
+        }
+        set methods = read_exact(ref client, nmethods)
+        if methods == null { client.close(); return }
+        set noauth = false
+        for i in 0..methods.len() {
+            if methods[i] == 0u8 {
+                rewrite noauth = true
+            }
+        }
+        if !noauth {
+            this.reply(client, 255)
+            client.close()
+            return
+        }
+        set sel: bytes = []
+        sel.push(5u8)
+        sel.push(0u8)
+        client.write_bytes(sel.as_ptr(), sel.len())
+        client.flush()
+
+        set req = read_exact(ref client, 4)
+        if req == null { client.close(); return }
+        set cmd = cast(req[1], "int64")
+        set atyp = cast(req[3], "int64")
+        if cmd != 1 {
+            this.reply(client, 7)
+            client.close()
+            return
+        }
+
+        set host = ""
+        if atyp == 1 {
+            set raw = read_exact(ref client, 4)
+            if raw == null { client.close(); return }
+            rewrite host = i64_to_string(cast(raw[0], "int64")) + "." + i64_to_string(cast(raw[1], "int64")) + "." + i64_to_string(cast(raw[2], "int64")) + "." + i64_to_string(cast(raw[3], "int64"))
+        }
+        if atyp == 3 {
+            set lraw = read_exact(ref client, 1)
+            if lraw == null { client.close(); return }
+            set dlen = cast(lraw[0], "int64")
+            set dbytes = read_exact(ref client, dlen)
+            if dbytes == null { client.close(); return }
+            rewrite host = string::from_raw_parts(dbytes.as_ptr(), dbytes.len())
+        }
+        if atyp != 1 && atyp != 3 {
+            this.reply(client, 8)
+            client.close()
+            return
+        }
+        set praw = read_exact(ref client, 2)
+        if praw == null { client.close(); return }
+        set port = cast(praw[0], "int64") * 256 + cast(praw[1], "int64")
+
+        if !this.cfg.target_allowed(host) {
+            eprint("[socks5] denied: " + host + "\n")
+            this.reply(client, 2)
+            client.close()
+            return
+        }
+
+        set target = host + ":" + i64_to_string(port)
+        print("[socks5] -> " + target + "\n")
+        sus {
+            set upstream = tcp_connect(target, 10000)
+            this.reply(client, 0)
+            relay_duplex(client, upstream)
+        } catch {
+            eprint("[socks5] upstream fail\n")
+            this.reply(client, 5)
+        }
+        client.close()
+    }
+}

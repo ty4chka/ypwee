@@ -1,0 +1,85 @@
+// ypwee — config: key=value lines, documented API only
+load std.fs: read_text
+load std.net: NetError
+load std.io: eprint
+
+public class Config {
+    mode: string
+    socks5_addr: string
+    http_addr: string
+    allow_all_targets: bool
+    allowed_hosts: string[]
+
+    fun init() {
+        rewrite this.mode = "all"
+        rewrite this.socks5_addr = "127.0.0.1:1080"
+        rewrite this.http_addr = "127.0.0.1:8080"
+        rewrite this.allow_all_targets = false
+        rewrite this.allowed_hosts = []
+    }
+
+    fun apply_line(line: string) {
+        // trim: находим первый/последний значимый символ (space 32, tab 9)
+        set start = 0
+        set end = line.len()
+        while start < end {
+            set c = line[start]
+            if c == 32u8 || c == 9u8 {
+                rewrite start += 1
+            } else {
+                break
+            }
+        }
+        while end > start {
+            set c = line[end - 1]
+            if c == 32u8 || c == 9u8 {
+                rewrite end -= 1
+            } else {
+                break
+            }
+        }
+        if start >= end { return }
+        if line[start] == 35u8 { return }   // '#'
+
+        // '=' поиск
+        set eq = -1
+        for i in start..end {
+            if line[i] == 61u8 {
+                rewrite eq = i
+                break
+            }
+        }
+        if eq < 0 { return }
+        set key = ypwee_trim2(line, start, eq)
+        set val = ypwee_trim2(line, eq + 1, end)
+        if key == "mode" { rewrite this.mode = val }
+        if key == "socks5" { rewrite this.socks5_addr = val }
+        if key == "http" { rewrite this.http_addr = val }
+        if key == "allow-all" { rewrite this.allow_all_targets = (val == "true") }
+        if key == "allow" { this.allowed_hosts.push(val) }
+    }
+
+}
+
+public fun ypwee_trim2(line: string, from: int64, to: int64) -> string {
+    set s = from
+    set e = to
+    while s < e {
+        set c = line[s]
+        if c == 32u8 || c == 9u8 {
+            rewrite s += 1
+        } else {
+            break
+        }
+    }
+    while e > s {
+        set c = line[e - 1]
+        if c == 32u8 || c == 9u8 {
+            rewrite e -= 1
+        } else {
+            break
+        }
+    }
+    if s >= e { return "" }
+    return string::from_raw_parts(cast(line.as_ptr() + s, "ptr<uint8>"), e - s)
+}

@@ -1,0 +1,39 @@
+// ypwee — string helpers: substring via from_raw_parts (slices broken in parser)
+public fun substr(s: string, start: int64, len: int64) -> string {
+    if len <= 0 { return "" }
+    if start < 0 { return "" }
+    if start + len > s.len() { return "" }
+    set shifted = cast(s.as_ptr() + start, "ptr<uint8>")
+    return string::from_raw_parts(shifted, len)
+}
+
+public fun substr_to_end(s: string, start: int64) -> string {
+    return substr(s, start, s.len() - start)
+}
+
+public fun find_char(s: string, c: uint8) -> int64 {
+    for i in 0..s.len() {
+        if s[i] == c { return i }
+    }
+    return -1
+}
+
+public fun i64_to_string(v: int64) -> string {
+    if v == 0 { return "0" }
+    set neg = v < 0
+    set n = v
+    if neg { rewrite n = -n }
+    set digits: bytes = []
+    while n > 0 {
+        digits.push(cast(48 + n % 10, "uint8"))
+        rewrite n /= 10
+    }
+    set out = ""
+    if neg { rewrite out = "-" }
+    set i = digits.len()
+    while i > 0 {
+        rewrite i -= 1
+        rewrite out = out + cast(cast(digits[i], "char"), "string")
+    }
+    return out
+}
