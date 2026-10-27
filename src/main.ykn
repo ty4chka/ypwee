@@ -359,7 +359,7 @@ public class Proxy {
                 return
             }
             rewrite this.c_idletick[ci] = this.tick
-            push_bytes_string(this.c_acc[ci], chunk)
+            push_bytes_string(ref ~this.c_acc[ci], chunk)
         } catch {
             this.drop_client(ci)
             return
