@@ -8,7 +8,7 @@ public fun push_bytes_string(acc: bytes, s: string) {
 }
 
 public fun bytes_from_string(s: string) -> bytes {
-    set out: uint8[] = []
+    set out: bytes = cast("", "bytes")
     push_bytes_string(out, s)
     return out
 }

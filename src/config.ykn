@@ -32,6 +32,10 @@ public class Config {
     users: string[]
     allow_targets: string[]      // host or *.suffix or *
     allow_private_targets: bool
+    rate_per_sec: int64
+    hs_timeout_s: int64
+    idle_timeout_s: int64
+    max_conns: int64
 
     fun init() {
         rewrite this.mode = "all"
@@ -40,6 +44,10 @@ public class Config {
         rewrite this.users = []
         rewrite this.allow_targets = []
         rewrite this.allow_private_targets = false
+    rewrite this.rate_per_sec = 50
+    rewrite this.hs_timeout_s = 30
+    rewrite this.idle_timeout_s = 300
+    rewrite this.max_conns = 1024
     }
 
     fun apply(line: string) {
@@ -68,6 +76,10 @@ public class Config {
         if key == "user" { this.users.push(val) }
         if key == "allow" { this.allow_targets.push(val) }
         if key == "allow-private" { rewrite this.allow_private_targets = (val == "true") }
+        if key == "max-conns" { rewrite this.max_conns = cast(val, "int64") }
+        if key == "handshake-timeout-ms" { rewrite this.hs_timeout_s = cast(val, "int64") / 1000 }
+        if key == "idle-timeout-ms" { rewrite this.idle_timeout_s = cast(val, "int64") / 1000 }
+        if key == "new-conns-per-sec" { rewrite this.rate_per_sec = cast(val, "int64") }
         if key == "allow-all" { if val == "true" { this.allow_targets.push("*") } }
     }
 

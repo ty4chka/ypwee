@@ -295,8 +295,8 @@ public class Proxy {
             if this.c_acc[ci].len() < 1 + ulen + 1 { return }
             set plen = cast(this.c_acc[ci][1 + ulen], "int64")
             if this.c_acc[ci].len() < 2 + ulen + plen { return }
-            set u = string::from_raw_parts(cast(this.c_acc[ci].as_ptr() + 1, "ptr<uint8>"), ulen)
-            set p = string::from_raw_parts(cast(this.c_acc[ci].as_ptr() + 2 + ulen, "ptr<uint8>"), plen)
+            set u = string::from_raw_parts(cast(cast(this.c_acc[ci].as_ptr(), "int64") + 1, "ptr<uint8>"), ulen)
+            set p = string::from_raw_parts(cast(cast(this.c_acc[ci].as_ptr(), "int64") + 2 + ulen, "ptr<uint8>"), plen)
             set ok = this.store.check(u, p)
             this.send_client(ci, userpass_reply(ok))
             rewrite this.c_acc[ci] = []
@@ -328,7 +328,7 @@ public class Proxy {
                 set dlen = cast(this.c_acc[ci][4], "int64")
                 rewrite need = 7 + dlen
                 if this.c_acc[ci].len() < 5 + dlen + 2 { return }
-                set host = string::from_raw_parts(cast(this.c_acc[ci].as_ptr() + 5, "ptr<uint8>"), dlen)
+                set host = string::from_raw_parts(cast(cast(this.c_acc[ci].as_ptr(), "int64") + 5, "ptr<uint8>"), dlen)
             }
             if atyp == 4 {
                 rewrite need = 22
