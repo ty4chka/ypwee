@@ -168,7 +168,7 @@ public fun load_config(path: string) -> Config {
         while i <= text.len() {
             if i == text.len() || text[i] == 10u8 {
                 if i > s {
-                    set line = ypwee_trim2(text, s, i)
+                    set line: string = ypwee_trim2(text, s, i)
                     cfg.apply(line)
                 }
                 rewrite s = i + 1
