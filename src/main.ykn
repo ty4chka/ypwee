@@ -248,7 +248,12 @@ public class Proxy {
             return
         }
         set st: uint64 = this.c_state[ci]
-        print("[ypwee][trace] socks_read state=" + i64_to_string(cast(st, "int64")) + " acc=" + i64_to_string(cast(this.c_acc[ci].len(), "int64")) + "\n")
+        if st == HS_SOCKS_VER { print("[ypwee][trace] state=HS_SOCKS_VER\n") }
+        if st == HS_SOCKS_USERPASS_LEN { print("[ypwee][trace] state=HS_SOCKS_USERPASS_LEN\n") }
+        if st == HS_SOCKS_REQ { print("[ypwee][trace] state=HS_SOCKS_REQ\n") }
+        if st == ST_RELAY_C { print("[ypwee][trace] state=ST_RELAY\n") }
+        set acl = cast(this.c_acc[ci].len(), "int64")
+        if acl == 3 { print("[ypwee][trace] acc len=3 ok\n") }
 
         // ── VER+NMETHODS
         if st == HS_SOCKS_VER {
