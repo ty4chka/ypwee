@@ -62,7 +62,7 @@ public class Proxy {
         rewrite this.c_id = []
         rewrite this.c_state = []
         rewrite this.c_is_socks = []
-        rewrite this.c_acc = cast([], "bytes[]") if false else []
+        rewrite this.c_acc = []
         rewrite this.c_user = []
         rewrite this.c_pass = []
         rewrite this.c_target = []
