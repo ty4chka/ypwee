@@ -210,12 +210,12 @@ public class Proxy {
 
     fun on_readable(key: uint64) {
         // upstream?
-        set ui = this.u_find(key)
+        set ui: int64 = this.u_find(key)
         if ui >= 0 {
             this.relay_up_to_client(ui)
             return
         }
-        set ci = this.c_find(key)
+        set ci: int64 = this.c_find(key)
         if ci < 0 { return }
         if this.c_is_socks[ci] {
             this.socks_read(ci)
@@ -223,7 +223,6 @@ public class Proxy {
             this.http_read(ci)
         }
     }
-
     fun socks_read(ci: int64) {
         // binary handshake: читаем в c_acc, двигаем state
         sus {
