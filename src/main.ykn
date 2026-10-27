@@ -79,11 +79,11 @@ public class Proxy {
     fun run() {
         set l1 = tcp_listen(this.cfg.socks5_addr)
         l1.set_nonblocking(true)
-        this.poller.add_listener(l1, POLL_READABLE, KEY_SOCKS_L)
+        this.poller.add_listener(ref l1, POLL_READABLE, KEY_SOCKS_L)
         print("[ypwee] socks5 on " + this.cfg.socks5_addr + "\n")
         set l2 = tcp_listen(this.cfg.http_addr)
         l2.set_nonblocking(true)
-        this.poller.add_listener(l2, POLL_READABLE, KEY_HTTP_L)
+        this.poller.add_listener(ref l2, POLL_READABLE, KEY_HTTP_L)
         print("[ypwee] http on " + this.cfg.http_addr + "\n")
         while true {
             set events = this.poller.wait(1000)
@@ -105,7 +105,7 @@ public class Proxy {
             rewrite this.sec_count = 0
         }
         rewrite this.sec_count += 1
-        if this.sec_count > this.cfg.new_conns_per_sec { return }
+        if this.sec_count > this.cfg.rate_per_sec { return }
         if cast(this.c_key.len(), "int64") >= this.cfg.max_conns { return }
         sus {
             set c = listener.accept()
@@ -113,7 +113,7 @@ public class Proxy {
             c.set_timeouts(0, 0)
             rewrite this.next_key += 1
             set k = this.next_key
-            this.poller.add_stream(c, POLL_READABLE, k)
+            this.poller.add_stream(ref c, POLL_READABLE, k)
             this.push_client(k, c.id, is_socks)
         } catch {
             // accept error — ignore until next event
@@ -129,7 +129,8 @@ public class Proxy {
             this.c_state.push(HS_HTTP_HEADERS)
         }
         this.c_is_socks.push(is_socks)
-        this.c_acc.push([])
+        set emp: uint8[] = []
+        this.c_acc.push(emp)
         this.c_user.push("")
         this.c_pass.push("")
         this.c_target.push("")
@@ -163,9 +164,9 @@ public class Proxy {
                     set us = init TcpStream(this.u_id[ui])
                     us.close()
                 } catch { }
-                this.u_key.remove_at(ui)
-                this.u_id.remove_at(ui)
-                this.u_cidx.remove_at(ui)
+                this.u_key.del(ui)
+                this.u_id.del(ui)
+                this.u_cidx.del(ui)
             }
         }
         sus {
@@ -173,18 +174,19 @@ public class Proxy {
             cs.close()
         } catch { }
         sus {
-            this.poller.remove_stream(init TcpStream(id))
+            set tmps = init TcpStream(id)
+            this.poller.remove_stream(ref tmps)
         } catch { }
-        this.c_key.remove_at(i)
-        this.c_id.remove_at(i)
-        this.c_state.remove_at(i)
-        this.c_is_socks.remove_at(i)
-        this.c_acc.remove_at(i)
-        this.c_user.remove_at(i)
-        this.c_pass.remove_at(i)
-        this.c_target.remove_at(i)
-        this.c_upkey.remove_at(i)
-        this.c_idletick.remove_at(i)
+        this.c_key.del(i)
+        this.c_id.del(i)
+        this.c_state.del(i)
+        this.c_is_socks.del(i)
+        this.c_acc.del(i)
+        this.c_user.del(i)
+        this.c_pass.del(i)
+        this.c_target.del(i)
+        this.c_upkey.del(i)
+        this.c_idletick.del(i)
     }
 
     fun expire() {
@@ -194,7 +196,7 @@ public class Proxy {
             set st = this.c_state[i]
             if st < ST_RELAY_C {
                 // handshake: строгий таймаут
-                if this.tick - this.c_idletick[i] > this.cfg.handshake_timeout_ms / 1000 {
+                if this.tick - this.c_idletick[i] > this.cfg.hs_timeout_s * 1000 / 1000 {
                     eprint("[ypwee] handshake timeout\n")
                     this.drop_client(i)
                 }
@@ -225,7 +227,7 @@ public class Proxy {
 
     fun sock_recv_str(id: uint64, acc: bytes) -> bool {
         // читаем часть и складываем в acc (binary-safe через read_bytes)
-        set tmp: bytes = []
+        set tmp: uint8[] = []
         set n = 0
         // read через read_bytes в статический буфер 65536
         sus {
@@ -348,7 +350,7 @@ public class Proxy {
             }
             set target = host + ":" + i64_to_string(port)
             sus {
-                set up = tcp_connect(target, this.cfg.handshake_timeout_ms)
+                set up = tcp_connect(target, this.cfg.hs_timeout_s * 1000)
                 up.set_nonblocking(true)
                 this.send_client(ci, socks5_reply(REP_OK))
                 rewrite this.c_target[ci] = target
@@ -428,7 +430,7 @@ public class Proxy {
             return
         }
         sus {
-            set up = tcp_connect(t, this.cfg.handshake_timeout_ms)
+            set up = tcp_connect(t, this.cfg.hs_timeout_s * 1000)
             up.set_nonblocking(true)
             this.send_client_str(ci, "HTTP/1.1 200 Connection Established\r\n\r\n")
             this.start_relay(ci, up)
@@ -450,7 +452,7 @@ public class Proxy {
         // upstream получает свой poller-key, состояния клиент/апстрим переключаются на relay
         rewrite this.next_key += 1
         set uk = this.next_key
-        this.poller.add_stream(upstream, POLL_READABLE, uk)
+        this.poller.add_stream(ref upstream, POLL_READABLE, uk)
         rewrite this.c_upkey[ci] = uk
         rewrite this.c_state[ci] = ST_RELAY_C
         this.u_key.push(uk)
@@ -470,9 +472,9 @@ public class Proxy {
                 set us = init TcpStream(this.u_id[ui])
                 us.close()
             } catch { }
-            this.u_key.remove_at(ui)
-            this.u_id.remove_at(ui)
-            this.u_cidx.remove_at(ui)
+            this.u_key.del(ui)
+            this.u_id.del(ui)
+            this.u_cidx.del(ui)
             return
         }
         if this.c_upkey[ci] != this.u_key[ui] { return }

@@ -25,14 +25,14 @@ public class UserStore {
 }
 
 public fun method_reply(method: uint8) -> bytes {
-    set r: bytes = []
+    set r: uint8[] = []
     r.push(5u8)
     r.push(method)
     return r
 }
 
 public fun userpass_reply(ok: bool) -> bytes {
-    set r: bytes = []
+    set r: uint8[] = []
     r.push(1u8)
     if ok { r.push(0u8) } else { r.push(1u8) }
     return r
@@ -40,7 +40,7 @@ public fun userpass_reply(ok: bool) -> bytes {
 
 public fun socks5_reply(rep: uint8) -> bytes {
     // VER REP RSV ATYP(1) BND.ADDR(4x0) BND.PORT(2x0)
-    set r: bytes = []
+    set r: uint8[] = []
     r.push(5u8)
     r.push(rep)
     r.push(0u8)

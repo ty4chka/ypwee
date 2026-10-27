@@ -31,5 +31,6 @@ public fun connect_target(acc: bytes) -> string? {
     }
     if sp2 < 0 { rewrite sp2 = end }
     if sp2 <= sp1 + 1 { return null }
-    return string::from_raw_parts(cast(acc.as_ptr() + sp1 + 1, "ptr<uint8>"), sp2 - sp1 - 1)
+    set base = cast(acc.as_ptr(), "int64") + sp1 + 1
+    return string::from_raw_parts(cast(base, "ptr<uint8>"), sp2 - sp1 - 1)
 }
