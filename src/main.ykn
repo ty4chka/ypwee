@@ -77,12 +77,14 @@ public class Proxy {
     }
 
     fun run() {
-        set l1 = tcp_listen(this.cfg.socks5_addr)
-        l1.set_nonblocking(true)
+        rewrite this.sock_l = tcp_listen(this.cfg.socks5_addr)
+        this.sock_l?.set_nonblocking(true)
+        set l1 = this.sock_l ?? tcp_listen(this.cfg.socks5_addr)
         this.poller.add_listener(ref l1, POLL_READABLE, KEY_SOCKS_L)
         print("[ypwee] socks5 on " + this.cfg.socks5_addr + "\n")
-        set l2 = tcp_listen(this.cfg.http_addr)
-        l2.set_nonblocking(true)
+        rewrite this.http_l = tcp_listen(this.cfg.http_addr)
+        this.http_l?.set_nonblocking(true)
+        set l2 = this.http_l ?? tcp_listen(this.cfg.http_addr)
         this.poller.add_listener(ref l2, POLL_READABLE, KEY_HTTP_L)
         print("[ypwee] http on " + this.cfg.http_addr + "\n")
         while true {
