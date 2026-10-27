@@ -90,8 +90,12 @@ public class Proxy {
             rewrite this.tick += 1
             for i in 0..events.len() {
                 set ev = events[i]
-                if ev.key == KEY_SOCKS_L && ev.readable { this.accept_one(ref l1, true) }
-                if ev.key == KEY_HTTP_L && ev.readable { this.accept_one(ref l2, false) }
+                if ev.key == KEY_SOCKS_L && ev.readable {
+                        sus { this.accept_one(ref l1, true) } catch { space }
+                    }
+                if ev.key == KEY_HTTP_L && ev.readable {
+                        sus { this.accept_one(ref l2, false) } catch { space }
+                    }
                 if ev.key >= 1000u64 { this.on_readable(ev.key) }
             }
             this.expire()
@@ -107,17 +111,12 @@ public class Proxy {
         rewrite this.sec_count += 1
         if this.sec_count > this.cfg.rate_per_sec { return }
         if cast(this.c_key.len(), "int64") >= this.cfg.max_conns { return }
-        sus {
-            set c = listener.accept()
-            c.set_nonblocking(true)
-            c.set_timeouts(0, 0)
-            rewrite this.next_key += 1
-            set k = this.next_key
-            this.poller.add_stream(ref c, POLL_READABLE, k)
-            this.push_client(k, c.id, is_socks)
-        } catch {
-            // accept error — ignore until next event
-        }
+        set c = listener.accept()
+        c.set_nonblocking(true)
+        rewrite this.next_key += 1
+        set k: uint64 = this.next_key
+        this.poller.add_stream(ref c, POLL_READABLE, k)
+        this.push_client(k, c.id, is_socks)
     }
 
     fun push_client(k: uint64, id: uint64, is_socks: bool) {
