@@ -365,15 +365,14 @@ public class Proxy {
             return
         }
         // ищем конец заголовков
-        set acc: bytes = this.c_acc[ci]
         set end = -1
-        for i in 0..acc.len() - 3 {
-            if acc[i] == 13u8 && acc[i + 1] == 10u8 && acc[i + 2] == 13u8 && acc[i + 3] == 10u8 {
+        for i in 0..this.c_acc[ci].len() - 3 {
+            if this.c_acc[ci][i] == 13u8 && this.c_acc[ci][i + 1] == 10u8 && this.c_acc[ci][i + 2] == 13u8 && this.c_acc[ci][i + 3] == 10u8 {
                 rewrite end = i
                 break
             }
         }
-        if headers_oversize(ref acc, 16384) {
+        if headers_oversize(ref this.c_acc[ci], 16384) {
             // oversize — обрываем
             this.send_client_str(ci, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
             this.drop_client(ci)
@@ -381,12 +380,12 @@ public class Proxy {
         }
         if end < 0 { return }
         // метод — "CONNECT " (7 байт + space)
-        if acc[0] != 67u8 || acc[1] != 79u8 || acc[2] != 78u8 || acc[3] != 78u8 || acc[4] != 69u8 || acc[5] != 67u8 || acc[6] != 84u8 || acc[7] != 32u8 {
+        if this.c_acc[ci][0] != 67u8 || this.c_acc[ci][1] != 79u8 || this.c_acc[ci][2] != 78u8 || this.c_acc[ci][3] != 78u8 || this.c_acc[ci][4] != 69u8 || this.c_acc[ci][5] != 67u8 || this.c_acc[ci][6] != 84u8 || this.c_acc[ci][7] != 32u8 {
             this.send_client_str(ci, "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n")
             this.drop_client(ci)
             return
         }
-        set target = connect_target(ref acc)
+        set target = connect_target(ref this.c_acc[ci])
         if target == null {
             this.send_client_str(ci, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
             this.drop_client(ci)
