@@ -4,6 +4,7 @@ load .config: Config, load_config, is_private_target
 load .sniff: is_socks5_hello
 load .socks5: method_reply, userpass_reply, socks5_reply, UserStore
 load .httpconnect: connect_target, headers_oversize
+load .buffer: push_bytes_string
 
 static HS_SOCKS_VER: uint64 = 1u64
 static HS_SOCKS_METHODS: uint64 = 2u64
@@ -292,8 +293,8 @@ public class Proxy {
             if this.c_acc[ci].len() < 1 + ulen + 1 { return }
             set plen = cast(this.c_acc[ci][1 + ulen], "int64")
             if this.c_acc[ci].len() < 2 + ulen + plen { return }
-            set u = string::from_raw_parts(this.c_acc[ci].as_ptr() + 1, ulen)
-            set p = string::from_raw_parts(this.c_acc[ci].as_ptr() + 2 + ulen, plen)
+            set u = string::from_raw_parts(cast(this.c_acc[ci].as_ptr() + 1, "ptr<uint8>"), ulen)
+            set p = string::from_raw_parts(cast(this.c_acc[ci].as_ptr() + 2 + ulen, "ptr<uint8>"), plen)
             set ok = this.store.check(u, p)
             this.send_client(ci, userpass_reply(ok))
             rewrite this.c_acc[ci] = []
@@ -325,7 +326,7 @@ public class Proxy {
                 set dlen = cast(this.c_acc[ci][4], "int64")
                 rewrite need = 7 + dlen
                 if this.c_acc[ci].len() < 5 + dlen + 2 { return }
-                set host = string::from_raw_parts(this.c_acc[ci].as_ptr() + 5, dlen)
+                set host = string::from_raw_parts(cast(this.c_acc[ci].as_ptr() + 5, "ptr<uint8>"), dlen)
             }
             if atyp == 4 {
                 rewrite need = 22
@@ -363,7 +364,7 @@ public class Proxy {
     fun send_client(ci: int64, data: bytes) {
         sus {
             set cs = init TcpStream(this.c_id[ci])
-            cs.write_bytes(data.as_ptr(), data.len())
+            cs.write_bytes(data.as_ptr(), cast(data.len(), "int64"))
             cs.flush()
         } catch { }
     }
@@ -377,7 +378,7 @@ public class Proxy {
                 return
             }
             rewrite this.c_idletick[ci] = this.tick
-            this.c_acc[ci].push_bytes_string(chunk)
+            push_bytes_string(this.c_acc[ci], chunk)
         } catch {
             this.drop_client(ci)
             return
@@ -494,4 +495,25 @@ public class Proxy {
             this.drop_client(ci)
         }
     }
+}
+
+fun main() {
+    set cli = args()
+    set cfg = init Config()
+    if cli.len() > 0 {
+        rewrite cfg = load_config(cli[0])
+    } else {
+        rewrite cfg = load_config("ypwee.conf")
+    }
+    if cfg.users.len() == 0 {
+        eprint("[ypwee] no users configured (user = name:pass) — refusing to start\n")
+        rt::exit(1)
+    }
+    if cfg.allow_targets.len() == 0 {
+        eprint("[ypwee] no allow rules configured (allow = host | *.suffix | *) — refusing to start\n")
+        rt::exit(1)
+    }
+    print("[ypwee] mode=" + cfg.mode + " users=" + cast(cfg.users.len(), "string") + "\n")
+    set p = init Proxy(cfg)
+    p.run()
 }

@@ -1,0 +1,5 @@
+// ypwee — protocol sniffing by first bytes
+public fun is_socks5_hello(data: bytes) -> bool {
+    if data.len() < 2 { return false }
+    return data[0] == 5u8
+}

@@ -1,0 +1,14 @@
+// ypwee — byte helpers: string -> bytes (read() returns string in std)
+load std.net.tcp: TcpStream
+
+public fun push_bytes_string(acc: bytes, s: string) {
+    for i in 0..s.len() {
+        acc.push(s[i])
+    }
+}
+
+public fun bytes_from_string(s: string) -> bytes {
+    set out: bytes = []
+    push_bytes_string(out, s)
+    return out
+}

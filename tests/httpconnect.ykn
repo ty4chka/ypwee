@@ -3,7 +3,7 @@ load std.io: print
 
 #[test]
 fun test_connect_target_simple() {
-    set b = string_to_bytes("CONNECT example.com:443 HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n")
+    set b = string_to_bytes("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
     set t = connect_target(b)
     assert(t != null, "target parsed")
     set s = t ?? "x"
@@ -12,7 +12,7 @@ fun test_connect_target_simple() {
 
 #[test]
 fun test_connect_incomplete() {
-    set b = string_to_bytes("CONNECT example.com:443 HTTP/1.1\\r\\n")
+    set b = string_to_bytes("CONNECT example.com:443 HTTP/1.1\r\n")
     set t = connect_target(b)
     assert(t == null, "no headers end → null")
 }
@@ -28,11 +28,4 @@ fun string_to_bytes(s: string) -> bytes {
     set out: bytes = []
     for i in 0..s.len() { out.push(s[i]) }
     return out
-}
-
-fun assert(cond: bool, msg: string) {
-    if !cond {
-        print("FAIL: " + msg + "\\n")
-        rt::exit(1)
-    }
 }

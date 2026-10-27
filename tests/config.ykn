@@ -1,4 +1,5 @@
 load .config: Config, is_private_target
+load .socks5: UserStore
 load std.io: print
 
 #[test]
@@ -42,11 +43,4 @@ fun test_userstore_check() {
     assert(s.check("alice", "secret"), "ok pair")
     assert(!s.check("alice", "wrong"), "wrong pass")
     assert(!s.check("eve", "x"), "unknown user")
-}
-
-fun assert(cond: bool, msg: string) {
-    if !cond {
-        print("FAIL: " + msg + "\\n")
-        rt::exit(1)
-    }
 }

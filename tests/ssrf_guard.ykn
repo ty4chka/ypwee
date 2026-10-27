@@ -28,10 +28,3 @@ fun test_public_allowed() {
     assert(!is_private_target("1.1.1.1"), "1.1.1.1 ok")
     assert(!is_private_target("8.8.4.4"), "8.8.4.4 ok")
 }
-
-fun assert(cond: bool, msg: string) {
-    if !cond {
-        print("FAIL: " + msg + "\\n")
-        rt::exit(1)
-    }
-}

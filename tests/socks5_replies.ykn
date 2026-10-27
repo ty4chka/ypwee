@@ -37,10 +37,3 @@ fun socks5_reply_shape() {
     assert(r[4] == 0u8 && r[5] == 0u8 && r[6] == 0u8 && r[7] == 0u8, "bnd.addr zero")
     assert(r[8] == 0u8 && r[9] == 0u8, "bnd.port zero")
 }
-
-fun assert(cond: bool, msg: string) {
-    if !cond {
-        print("FAIL: " + msg + "\\n")
-        rt::exit(1)
-    }
-}

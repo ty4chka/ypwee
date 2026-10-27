@@ -1,53 +1,62 @@
-// ypwee — config: key=value lines, documented API only
-load std.fs: read_text
-load std.net: NetError
+// ypwee — config: key=value lines, ACL + SSRF guard (documented API only)
 load std.io: eprint
+
+public class UserStore {
+    users: string[]
+
+    fun init(users: string[]) {
+        rewrite this.users = users
+    }
+
+    fun check(user: string, pass: string) -> bool {
+        for i in 0..this.users.len() {
+            set line = this.users[i]
+            set sep = -1
+            for j in 0..line.len() {
+                if line[j] == 58u8 { rewrite sep = j; break }
+            }
+            if sep <= 0 { continue }
+            set u = string::from_raw_parts(line.as_ptr(), cast(sep, "int64"))
+            set p = string::from_raw_parts(cast(line.as_ptr() + sep + 1, "ptr<uint8>"), cast(line.len() - sep - 1, "int64"))
+            if u == user && p == pass { return true }
+        }
+        return false
+    }
+}
 
 public class Config {
     mode: string
     socks5_addr: string
     http_addr: string
-    allow_all_targets: bool
-    allowed_hosts: string[]
+    users: string[]
+    allow_targets: string[]      // host or *.suffix or *
+    allow_private_targets: bool
 
     fun init() {
         rewrite this.mode = "all"
         rewrite this.socks5_addr = "127.0.0.1:1080"
-        rewrite this.http_addr = "127.0.0.1:8080"
-        rewrite this.allow_all_targets = false
-        rewrite this.allowed_hosts = []
+        rewrite this.http_addr = "127.0.0.1:8081"
+        rewrite this.users = []
+        rewrite this.allow_targets = []
+        rewrite this.allow_private_targets = false
     }
 
-    fun apply_line(line: string) {
-        // trim: находим первый/последний значимый символ (space 32, tab 9)
+    fun apply(line: string) {
         set start = 0
         set end = line.len()
         while start < end {
             set c = line[start]
-            if c == 32u8 || c == 9u8 {
-                rewrite start += 1
-            } else {
-                break
-            }
+            if c == 32u8 || c == 9u8 { rewrite start += 1 } else { break }
         }
         while end > start {
             set c = line[end - 1]
-            if c == 32u8 || c == 9u8 {
-                rewrite end -= 1
-            } else {
-                break
-            }
+            if c == 32u8 || c == 9u8 { rewrite end -= 1 } else { break }
         }
         if start >= end { return }
-        if line[start] == 35u8 { return }   // '#'
-
-        // '=' поиск
+        if line[start] == 35u8 { return }
         set eq = -1
         for i in start..end {
-            if line[i] == 61u8 {
-                rewrite eq = i
-                break
-            }
+            if line[i] == 61u8 { rewrite eq = i; break }
         }
         if eq < 0 { return }
         set key = ypwee_trim2(line, start, eq)
@@ -55,10 +64,108 @@ public class Config {
         if key == "mode" { rewrite this.mode = val }
         if key == "socks5" { rewrite this.socks5_addr = val }
         if key == "http" { rewrite this.http_addr = val }
-        if key == "allow-all" { rewrite this.allow_all_targets = (val == "true") }
-        if key == "allow" { this.allowed_hosts.push(val) }
+        if key == "user" { this.users.push(val) }
+        if key == "allow" { this.allow_targets.push(val) }
+        if key == "allow-private" { rewrite this.allow_private_targets = (val == "true") }
+        if key == "allow-all" { if val == "true" { this.allow_targets.push("*") } }
     }
 
+    fun target_allowed(host: string) -> bool {
+        if !this.allow_private_targets && is_private_target(host) { return false }
+        for i in 0..this.allow_targets.len() {
+            set a = this.allow_targets[i]
+            if a == "*" { return true }
+            if a == host { return true }
+            // wildcard *.suffix
+            if a[0] == 42u8 {
+                set suf = string::from_raw_parts(cast(a.as_ptr() + 1, "ptr<uint8>"), cast(a.len() - 1, "int64"))
+                if host.len() > suf.len() {
+                    set tail = string::from_raw_parts(cast(host.as_ptr() + host.len() - suf.len(), "ptr<uint8>"), cast(suf.len(), "int64"))
+                    if tail == suf { return true }
+                }
+            }
+        }
+        return false
+    }
+}
+
+public fun is_private_target(host: string) -> bool {
+    // v6 (contains ':')
+    for i in 0..host.len() {
+        if host[i] == 58u8 {
+            if host == "::1" { return true }
+            if host == "0:0:0:0:0:0:0:1" { return true }
+            set h = host
+            if h.len() >= 5 {
+                set p5 = string::from_raw_parts(h.as_ptr(), 5)
+                if p5 == "fe80:" { return true }
+                if p5 == "fd00:" { return true }
+            }
+            if h.len() >= 4 {
+                set p4 = string::from_raw_parts(h.as_ptr(), 4)
+                if p4 == "fc00" || p4 == "fd00" || p4 == "fe80" { return true }
+            }
+            return false
+        }
+    }
+    // domain (contains alpha)
+    for i in 0..host.len() {
+        set c = host[i]
+        if (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) { return false }
+    }
+    // dotted quad
+    set a: int64 = 0
+    set b: int64 = 0
+    set oct: int64 = 0
+    set idx: int64 = 0
+    set i2: int64 = 0
+    while i2 < host.len() && idx < 4 {
+        set v: int64 = 0
+        set digits: int64 = 0
+        while i2 < host.len() && host[i2] != 46u8 {
+            set c2 = host[i2]
+            if c2 < 48u8 || c2 > 57u8 { return true }
+            rewrite v = v * 10 + cast(c2 - 48u8, "int64")
+            rewrite digits += 1
+            if digits > 3 { return true }
+            rewrite i2 += 1
+        }
+        if digits == 0 { return true }
+        if idx == 0 { rewrite a = v }
+        if idx == 1 { rewrite b = v }
+        rewrite oct += 1
+        rewrite i2 += 1
+        rewrite idx += 1
+    }
+    if oct != 4 { return true }
+    if a == 127 || a == 10 || a == 0 { return true }
+    if a == 192 && b == 168 { return true }
+    if a == 172 && b >= 16 && b <= 31 { return true }
+    if a == 169 && b == 254 { return true }
+    if a >= 224 { return true }
+    return false
+}
+
+public fun load_config(path: string) -> Config {
+    set cfg = init Config()
+    sus {
+        set text = std.fs.read_text(path)
+        set i: int64 = 0
+        set s: int64 = 0
+        while i <= text.len() {
+            if i == text.len() || text[i] == 10u8 {
+                if i > s {
+                    set line = ypwee_trim2(text, s, i)
+                    cfg.apply(line)
+                }
+                rewrite s = i + 1
+            }
+            rewrite i += 1
+        }
+    } catch {
+        eprint("[ypwee] config missing or unreadable: using defaults; run with config path arg\n")
+    }
+    return cfg
 }
 
 public fun ypwee_trim2(line: string, from: int64, to: int64) -> string {
@@ -66,19 +173,11 @@ public fun ypwee_trim2(line: string, from: int64, to: int64) -> string {
     set e = to
     while s < e {
         set c = line[s]
-        if c == 32u8 || c == 9u8 {
-            rewrite s += 1
-        } else {
-            break
-        }
+        if c == 32u8 || c == 9u8 { rewrite s += 1 } else { break }
     }
     while e > s {
         set c = line[e - 1]
-        if c == 32u8 || c == 9u8 {
-            rewrite e -= 1
-        } else {
-            break
-        }
+        if c == 32u8 || c == 9u8 { rewrite e -= 1 } else { break }
     }
     if s >= e { return "" }
     return string::from_raw_parts(cast(line.as_ptr() + s, "ptr<uint8>"), e - s)
