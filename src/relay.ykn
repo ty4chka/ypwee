@@ -30,7 +30,7 @@ public fun relay_duplex(ref client: TcpStream, ref upstream: TcpStream) {
                 set chunk = client.read(65536)
                 if chunk.len() == 0 {
                     rewrite client_open = false
-                    poller.remove_stream(client)
+                    poller.remove_stream(ref client)
                 } else {
                     upstream.write(chunk)
                     upstream.flush()
@@ -40,7 +40,7 @@ public fun relay_duplex(ref client: TcpStream, ref upstream: TcpStream) {
                 set chunk = upstream.read(65536)
                 if chunk.len() == 0 {
                     rewrite upstream_open = false
-                    poller.remove_stream(upstream)
+                    poller.remove_stream(ref upstream)
                 } else {
                     client.write(chunk)
                     client.flush()

@@ -10,7 +10,7 @@ public class UserStore {
 
     fun check(user: string, pass: string) -> bool {
         for i in 0..this.users.len() {
-            set line = this.users[i]
+            set line: string = this.users[i]
             set sep = -1
             for j in 0..line.len() {
                 if line[j] == 58u8 { rewrite sep = j; break }

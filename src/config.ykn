@@ -11,7 +11,7 @@ public class UserStore {
 
     fun check(user: string, pass: string) -> bool {
         for i in 0..this.users.len() {
-            set line = this.users[i]
+            set line: string = this.users[i]
             set sep = -1
             for j in 0..line.len() {
                 if line[j] == 58u8 { rewrite sep = j; break }
@@ -68,8 +68,8 @@ public class Config {
             if line[i] == 61u8 { rewrite eq = i; break }
         }
         if eq < 0 { return }
-        set key = ypwee_trim2(line, start, eq)
-        set val = ypwee_trim2(line, eq + 1, end)
+        set key: string = ypwee_trim2(line, start, eq)
+        set val: string = ypwee_trim2(line, eq + 1, end)
         if key == "mode" { rewrite this.mode = val }
         if key == "socks5" { rewrite this.socks5_addr = val }
         if key == "http" { rewrite this.http_addr = val }
@@ -86,14 +86,14 @@ public class Config {
     fun target_allowed(host: string) -> bool {
         if !this.allow_private_targets && is_private_target(host) { return false }
         for i in 0..this.allow_targets.len() {
-            set a = this.allow_targets[i]
+            set a: string = this.allow_targets[i]
             if a == "*" { return true }
             if a == host { return true }
             // wildcard *.suffix
             if a[0] == 42u8 {
-                set suf = string::from_raw_parts(cast(a.as_ptr() + 1, "ptr<uint8>"), cast(a.len() - 1, "int64"))
+                set suf: string = string::from_raw_parts(cast(cast(a.as_ptr(), "int64") + 1, "ptr<uint8>"), cast(a.len() - 1, "int64"))
                 if host.len() > suf.len() {
-                    set tail = string::from_raw_parts(cast(host.as_ptr() + host.len() - suf.len(), "ptr<uint8>"), cast(suf.len(), "int64"))
+                    set tail: string = string::from_raw_parts(cast(cast(host.as_ptr(), "int64") + host.len() - suf.len(), "ptr<uint8>"), cast(suf.len(), "int64"))
                     if tail == suf { return true }
                 }
             }
@@ -110,12 +110,12 @@ public fun is_private_target(host: string) -> bool {
             if host == "0:0:0:0:0:0:0:1" { return true }
             set h = host
             if h.len() >= 5 {
-                set p5 = string::from_raw_parts(h.as_ptr(), 5)
+                set p5: string = string::from_raw_parts(h.as_ptr(), 5)
                 if p5 == "fe80:" { return true }
                 if p5 == "fd00:" { return true }
             }
             if h.len() >= 4 {
-                set p4 = string::from_raw_parts(h.as_ptr(), 4)
+                set p4: string = string::from_raw_parts(h.as_ptr(), 4)
                 if p4 == "fc00" || p4 == "fd00" || p4 == "fe80" { return true }
             }
             return false

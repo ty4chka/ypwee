@@ -365,7 +365,7 @@ public class Proxy {
             return
         }
         // ищем конец заголовков
-        set acc = this.c_acc[ci]
+        set acc: bytes = this.c_acc[ci]
         set end = -1
         for i in 0..acc.len() - 3 {
             if acc[i] == 13u8 && acc[i + 1] == 10u8 && acc[i + 2] == 13u8 && acc[i + 3] == 10u8 {
@@ -402,7 +402,7 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        set host = string::from_raw_parts(t.as_ptr(), cast(colon, "int64"))
+        set host: string = string::from_raw_parts(t.as_ptr(), cast(colon, "int64"))
         if !this.cfg.target_allowed(host) {
             this.send_client_str(ci, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
             this.drop_client(ci)
@@ -430,7 +430,7 @@ public class Proxy {
     fun start_relay(ci: int64, upstream: TcpStream) {
         // upstream получает свой poller-key, состояния клиент/апстрим переключаются на relay
         rewrite this.next_key += 1
-        set uk = this.next_key
+        set uk: uint64 = this.next_key
         this.poller.add_stream(ref upstream, POLL_READABLE, uk)
         rewrite this.c_upkey[ci] = uk
         rewrite this.c_state[ci] = ST_RELAY_C
@@ -444,7 +444,7 @@ public class Proxy {
     }
 
     fun relay_up_to_client(ui: int64) {
-        set ci = this.u_cidx[ui]
+        set ci: int64 = this.u_cidx[ui]
         if ci < 0 || ci >= cast(this.c_key.len(), "int64") {
             // клиент умер, вытаскиваем upstream
             sus {
