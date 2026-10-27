@@ -20,9 +20,9 @@ fun test_acl_wildcard() {
     set c = init Config()
     c.apply("allow = *.example.com")
     set h1: string = "api.example.com"
-    assert(c.target_allowed(ref h1), "wildcard match")
+    assert(c.target_allowed(h1), "wildcard match")
     set h2: string = "example.org"
-    assert(!c.target_allowed(ref h2), "no match")
+    assert(!c.target_allowed(h2), "no match")
 }
 
 #[test]
@@ -30,12 +30,12 @@ fun test_acl_private_denied_by_default() {
     set c = init Config()
     c.apply("allow = *")
     set h3: string = "127.0.0.1"
-    assert(!c.target_allowed(ref h3), "loopback refused")
+    assert(!c.target_allowed(h3), "loopback refused")
     set h4: string = "10.1.2.3"
-    assert(!c.target_allowed(ref h4), "private refused")
+    assert(!c.target_allowed(h4), "private refused")
     rewrite c.allow_private_targets = true
     set h5: string = "127.0.0.1"
-    assert(c.target_allowed(ref h5), "opt-in allows")
+    assert(c.target_allowed(h5), "opt-in allows")
 }
 
 #[test]

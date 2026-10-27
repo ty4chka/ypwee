@@ -294,11 +294,11 @@ public class Proxy {
             if this.c_acc[ci].len() < 5 { return }
             set atyp = cast(this.c_acc[ci][3], "int64")
             set need = 0
-            set host = ""
+            set host: string = ""
             if atyp == 1 {
                 rewrite need = 10   // 4 hdr + 4 addr + 2 port
                 if this.c_acc[ci].len() < 10 { return }
-                set host: string = i64_to_string(cast(this.c_acc[ci][4], "int64")) + "." +
+                rewrite host = i64_to_string(cast(this.c_acc[ci][4], "int64")) + "." +
                     i64_to_string(cast(this.c_acc[ci][5], "int64")) + "." +
                     i64_to_string(cast(this.c_acc[ci][6], "int64")) + "." +
                     i64_to_string(cast(this.c_acc[ci][7], "int64"))
@@ -307,13 +307,13 @@ public class Proxy {
                 set dlen = cast(this.c_acc[ci][4], "int64")
                 rewrite need = 7 + dlen
                 if this.c_acc[ci].len() < 5 + dlen + 2 { return }
-                set host: string = string::from_raw_parts(cast(cast(this.c_acc[ci].as_ptr(), "int64") + 5, "ptr<uint8>"), dlen)
+                rewrite host = string::from_raw_parts(cast(cast(this.c_acc[ci].as_ptr(), "int64") + 5, "ptr<uint8>"), dlen)
             }
             if atyp == 4 {
                 rewrite need = 22
                 if this.c_acc[ci].len() < 22 { return }
                 // v6 → 8 групп hex через from_raw_parts непросто; M1: proxy v6 targets только numeric — через parse_socket_addr
-                set host: string = "v6-placeholder"
+                rewrite host = "v6-placeholder"
             }
             set port = cast(this.c_acc[ci][need - 2], "int64") * 256 + cast(this.c_acc[ci][need - 1], "int64")
             set cmd = cast(this.c_acc[ci][1], "int64")
