@@ -231,23 +231,24 @@ public class Proxy {
         }
     }
     fun socks_read(ci: int64) {
-        // binary handshake: читаем в c_acc, двигаем state
+        print("[ypwee][trace] socks_read enter\n")
         sus {
             set cs = init TcpStream(this.c_id[ci])
             set chunk = cs.read(4096)
+            print("[ypwee][trace] read chunk len=" + i64_to_string(cast(chunk.len(), "int64")) + "\n")
             if chunk.len() == 0 {
                 this.drop_client(ci)
                 return
             }
             rewrite this.c_idletick[ci] = this.tick
-            for i in 0..chunk.len() {
-                this.c_acc[ci].push(chunk[i])
-            }
+            push_bytes_string(ref ~this.c_acc[ci], chunk)
         } catch {
+            print("[ypwee][trace] socks_read EXC\n")
             this.drop_client(ci)
             return
         }
         set st: uint64 = this.c_state[ci]
+        print("[ypwee][trace] socks_read state=" + i64_to_string(cast(st, "int64")) + " acc=" + i64_to_string(cast(this.c_acc[ci].len(), "int64")) + "\n")
 
         // ── VER+NMETHODS
         if st == HS_SOCKS_VER {
@@ -262,10 +263,12 @@ public class Proxy {
                 if this.c_acc[ci][i] == 2u8 { rewrite has_up = true }
             }
             if !has_up {
+                print("[ypwee][trace] no userpass method\n")
                 this.send_client(ci, method_reply(255u8))
                 this.drop_client(ci)
                 return
             }
+            print("[ypwee][trace] sending method_reply(2)\n")
             this.send_client(ci, method_reply(2u8))
             rewrite this.c_acc[ci] = []
             rewrite this.c_state[ci] = HS_SOCKS_USERPASS_LEN
