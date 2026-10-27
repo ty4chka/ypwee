@@ -1,0 +1,52 @@
+load .config: Config, is_private_target
+load std.io: print
+
+#[test]
+fn test_apply_lines() {
+    set c = init Config()
+    c.apply("mode = socks5")
+    c.apply("socks5 = 127.0.0.1:1080")
+    c.apply("user = alice:wonder")
+    c.apply("allow = example.com")
+    assert(c.mode == "socks5", "mode")
+    assert(c.socks5_addr == "127.0.0.1:1080", "addr")
+    assert(c.users.len() == 1, "users count")
+    assert(c.allow_targets.len() == 1, "targets")
+}
+
+#[test]
+fn test_acl_wildcard() {
+    set c = init Config()
+    c.apply("allow = *.example.com")
+    assert(c.target_allowed("api.example.com"), "wildcard match")
+    assert(!c.target_allowed("example.org"), "no match")
+}
+
+#[test]
+fn test_acl_private_denied_by_default() {
+    set c = init Config()
+    c.apply("allow = *")
+    assert(!c.target_allowed("127.0.0.1"), "loopback refused")
+    assert(!c.target_allowed("10.1.2.3"), "private refused")
+    rewrite c.allow_all_targets = false
+    rewrite c.allow_private_targets = true
+    assert(c.target_allowed("127.0.0.1"), "opt-in allows")
+}
+
+#[test]
+fn test_userstore_check() {
+    set c = init Config()
+    c.apply("user = alice:secret")
+    c.apply("user = bob:hunter2")
+    set s = init UserStore(c.users)
+    assert(s.check("alice", "secret"), "ok pair")
+    assert(!s.check("alice", "wrong"), "wrong pass")
+    assert(!s.check("eve", "x"), "unknown user")
+}
+
+fun assert(cond: bool, msg: string) {
+    if !cond {
+        print("FAIL: " + msg + "\\n")
+        rt::exit(1)
+    }
+}

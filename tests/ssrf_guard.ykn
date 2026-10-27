@@ -1,0 +1,37 @@
+load .config: is_private_target
+load std.io: print
+
+#[test]
+fn test_loopback_v4() {
+    assert(is_private_target("127.0.0.1"), "127.0.0.1 private")
+    assert(is_private_target("127.8.8.8"), "127.x private")
+}
+
+#[test]
+fn test_private_v4() {
+    assert(is_private_target("10.0.0.1"), "10/8")
+    assert(is_private_target("192.168.1.1"), "192.168/16")
+    assert(is_private_target("172.16.0.1"), "172.16/12")
+    assert(is_private_target("169.254.1.1"), "link-local")
+}
+
+#[test]
+fn test_v6_local() {
+    assert(is_private_target("::1"), "v6 loopback")
+    assert(is_private_target("fe80::1"), "v6 linklocal")
+    assert(is_private_target("fd00::"), "v6 ULA")
+}
+
+#[test]
+fn test_public_allowed() {
+    assert(!is_private_target("example.com"), "domain ok")
+    assert(!is_private_target("1.1.1.1"), "1.1.1.1 ok")
+    assert(!is_private_target("8.8.4.4"), "8.8.4.4 ok")
+}
+
+fun assert(cond: bool, msg: string) {
+    if !cond {
+        print("FAIL: " + msg + "\\n")
+        rt::exit(1)
+    }
+}

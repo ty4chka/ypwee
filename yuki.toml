@@ -1,0 +1,25 @@
+[bin]
+name = "ypwee"
+version = "0.1.0"
+entry = "src/main.ykn"
+yukino = ["0.1.0", "+"]
+
+[test]
+threads = "auto"
+timeout_ms = 30000
+capture_output = true
+fail_fast = false
+tests_dir = "tests"
+
+[features]
+default = []
+
+[libs.runtime]
+
+[libs.build]
+
+[libs.static]
+objects = []
+archives = []
+search_paths = []
+system = []

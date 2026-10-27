@@ -1,0 +1,46 @@
+load .socks5: method_reply, userpass_reply, socks5_reply
+load std.io: print
+
+#[test]
+fun method_reply_noauth() {
+    set r = method_reply(0u8)
+    assert(r.len() == 2, "reply len must be 2")
+    assert(r[0] == 5u8, "VER must be 5")
+    assert(r[1] == 0u8, "method byte mismatch")
+}
+
+#[test]
+fun method_reply_none() {
+    set r = method_reply(255u8)
+    assert(r.len() == 2, "reply len 2")
+    assert(r[1] == 255u8, "method 255")
+}
+
+#[test]
+fun userpass_reply_ok() {
+    set r = userpass_reply(true)
+    assert(r.len() == 2, "len")
+    assert(r[0] == 1u8, "subneg version")
+    assert(r[1] == 0u8, "status ok")
+    set r2 = userpass_reply(false)
+    assert(r2[1] == 1u8, "status fail")
+}
+
+#[test]
+fun socks5_reply_shape() {
+    set r = socks5_reply(0u8)
+    assert(r.len() == 10, "socks5 reply = 10 bytes")
+    assert(r[0] == 5u8, "ver")
+    assert(r[1] == 0u8, "rep")
+    assert(r[2] == 0u8, "rsv")
+    assert(r[3] == 1u8, "atyp ipv4")
+    assert(r[4] == 0u8 && r[5] == 0u8 && r[6] == 0u8 && r[7] == 0u8, "bnd.addr zero")
+    assert(r[8] == 0u8 && r[9] == 0u8, "bnd.port zero")
+}
+
+fun assert(cond: bool, msg: string) {
+    if !cond {
+        print("FAIL: " + msg + "\\n")
+        rt::exit(1)
+    }
+}
