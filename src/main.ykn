@@ -196,12 +196,12 @@ public class Proxy {
             set st: uint64 = this.c_state[i]
             if st < ST_RELAY_C {
                 // handshake: строгий таймаут
-                if this.tick - this.c_idletick[i] > this.cfg.hs_timeout_s * 1000 / 1000 {
+                if this.tick - this.c_idletick[i] > this.cfg.hs_timeout_s {
                     eprint("[ypwee] handshake timeout\n")
                     this.drop_client(i)
                 }
             } else {
-                if this.tick - this.c_idletick[i] > this.cfg.idle_timeout_ms / 1000 {
+                if this.tick - this.c_idletick[i] > this.cfg.idle_timeout_s {
                     this.drop_client(i)
                 }
             }
