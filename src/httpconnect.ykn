@@ -1,9 +1,9 @@
 // ypwee — HTTP CONNECT helpers (parser works on bytes)
-public fun headers_oversize(acc: bytes, limit: int64) -> bool {
+public fun headers_oversize(ref acc: bytes, limit: int64) -> bool {
     return cast(acc.len(), "int64") > limit
 }
 
-public fun connect_target(acc: bytes) -> string? {
+public fun connect_target(ref acc: bytes) -> string? {
     // ищем \r\n\r\n
     set end = -1
     set i: int64 = 0

@@ -90,15 +90,15 @@ public class Proxy {
             rewrite this.tick += 1
             for i in 0..events.len() {
                 set ev = events[i]
-                if ev.key == KEY_SOCKS_L && ev.readable { this.accept_one(l1, true) }
-                if ev.key == KEY_HTTP_L && ev.readable { this.accept_one(l2, false) }
+                if ev.key == KEY_SOCKS_L && ev.readable { this.accept_one(ref l1, true) }
+                if ev.key == KEY_HTTP_L && ev.readable { this.accept_one(ref l2, false) }
                 if ev.key >= 1000u64 { this.on_readable(ev.key) }
             }
             this.expire()
         }
     }
 
-    fun accept_one(listener: TcpListener, is_socks: bool) {
+    fun accept_one(ref listener: TcpListener, is_socks: bool) {
         // rate limit: окно 1 s
         if this.sec_window != this.tick {
             rewrite this.sec_window = this.tick
@@ -154,9 +154,9 @@ public class Proxy {
 
     fun drop_client(idx: int64) {
         set i = idx
-        set k = this.c_key[i]
-        set id = this.c_id[i]
-        set uk = this.c_upkey[i]
+        set k: uint64 = this.c_key[i]
+        set id: uint64 = this.c_id[i]
+        set uk: uint64 = this.c_upkey[i]
         if uk != 0u64 {
             set ui = this.u_find(uk)
             if ui >= 0 {
@@ -193,7 +193,7 @@ public class Proxy {
         // идём с конца — drop_client меняет индексы после swap
         set i = cast(this.c_key.len(), "int64") - 1
         while i >= 0 {
-            set st = this.c_state[i]
+            set st: uint64 = this.c_state[i]
             if st < ST_RELAY_C {
                 // handshake: строгий таймаут
                 if this.tick - this.c_idletick[i] > this.cfg.hs_timeout_s * 1000 / 1000 {
@@ -242,7 +242,7 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        set st = this.c_state[ci]
+        set st: uint64 = this.c_state[ci]
 
         // ── VER+NMETHODS
         if st == HS_SOCKS_VER {
@@ -274,8 +274,8 @@ public class Proxy {
             if this.c_acc[ci].len() < 1 + ulen + 1 { return }
             set plen = cast(this.c_acc[ci][1 + ulen], "int64")
             if this.c_acc[ci].len() < 2 + ulen + plen { return }
-            set u = string::from_raw_parts(cast(cast(this.c_acc[ci].as_ptr(), "int64") + 1, "ptr<uint8>"), ulen)
-            set p = string::from_raw_parts(cast(cast(this.c_acc[ci].as_ptr(), "int64") + 2 + ulen, "ptr<uint8>"), plen)
+            set u: string = string::from_raw_parts(cast(cast(this.c_acc[ci].as_ptr(), "int64") + 1, "ptr<uint8>"), ulen)
+            set p: string = string::from_raw_parts(cast(cast(this.c_acc[ci].as_ptr(), "int64") + 2 + ulen, "ptr<uint8>"), plen)
             set ok = this.store.check(u, p)
             this.send_client(ci, userpass_reply(ok))
             rewrite this.c_acc[ci] = []
@@ -298,7 +298,7 @@ public class Proxy {
             if atyp == 1 {
                 rewrite need = 10   // 4 hdr + 4 addr + 2 port
                 if this.c_acc[ci].len() < 10 { return }
-                set host = i64_to_string(cast(this.c_acc[ci][4], "int64")) + "." +
+                set host: string = i64_to_string(cast(this.c_acc[ci][4], "int64")) + "." +
                     i64_to_string(cast(this.c_acc[ci][5], "int64")) + "." +
                     i64_to_string(cast(this.c_acc[ci][6], "int64")) + "." +
                     i64_to_string(cast(this.c_acc[ci][7], "int64"))
@@ -307,13 +307,13 @@ public class Proxy {
                 set dlen = cast(this.c_acc[ci][4], "int64")
                 rewrite need = 7 + dlen
                 if this.c_acc[ci].len() < 5 + dlen + 2 { return }
-                set host = string::from_raw_parts(cast(cast(this.c_acc[ci].as_ptr(), "int64") + 5, "ptr<uint8>"), dlen)
+                set host: string = string::from_raw_parts(cast(cast(this.c_acc[ci].as_ptr(), "int64") + 5, "ptr<uint8>"), dlen)
             }
             if atyp == 4 {
                 rewrite need = 22
                 if this.c_acc[ci].len() < 22 { return }
                 // v6 → 8 групп hex через from_raw_parts непросто; M1: proxy v6 targets только numeric — через parse_socket_addr
-                set host = "v6-placeholder"
+                set host: string = "v6-placeholder"
             }
             set port = cast(this.c_acc[ci][need - 2], "int64") * 256 + cast(this.c_acc[ci][need - 1], "int64")
             set cmd = cast(this.c_acc[ci][1], "int64")
@@ -322,7 +322,7 @@ public class Proxy {
                 this.drop_client(ci)
                 return
             }
-            if !this.cfg.target_allowed(host) {
+            if !this.cfg.target_allowed(ref host) {
                 this.send_client(ci, socks5_reply(REP_RULES))
                 this.drop_client(ci)
                 return
@@ -373,7 +373,7 @@ public class Proxy {
                 break
             }
         }
-        if headers_oversize(acc, 16384) {
+        if headers_oversize(ref acc, 16384) {
             // oversize — обрываем
             this.send_client_str(ci, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
             this.drop_client(ci)
@@ -386,7 +386,7 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        set target = connect_target(acc)
+        set target = connect_target(ref acc)
         if target == null {
             this.send_client_str(ci, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
             this.drop_client(ci)
@@ -403,7 +403,7 @@ public class Proxy {
             return
         }
         set host: string = string::from_raw_parts(t.as_ptr(), cast(colon, "int64"))
-        if !this.cfg.target_allowed(host) {
+        if !this.cfg.target_allowed(ref host) {
             this.send_client_str(ci, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
             this.drop_client(ci)
             return

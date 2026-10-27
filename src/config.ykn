@@ -83,7 +83,7 @@ public class Config {
         if key == "allow-all" { if val == "true" { this.allow_targets.push("*") } }
     }
 
-    fun target_allowed(host: string) -> bool {
+    fun target_allowed(ref host: string) -> bool {
         if !this.allow_private_targets && is_private_target(host) { return false }
         for i in 0..this.allow_targets.len() {
             set a: string = this.allow_targets[i]
