@@ -478,7 +478,7 @@ public class Proxy {
 }
 
 fun main() {
-    set cli = args()
+    set cli: string[] = args()
     set cfg = init Config()
     if cli.len() > 0 {
         rewrite cfg = load_config(cli[0])
