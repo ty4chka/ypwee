@@ -129,7 +129,7 @@ public class Proxy {
             this.c_state.push(HS_HTTP_HEADERS)
         }
         this.c_is_socks.push(is_socks)
-        set emp: uint8[] = []
+        set emp: bytes = cast("", "bytes")
         this.c_acc.push(emp)
         this.c_user.push("")
         this.c_pass.push("")
@@ -223,27 +223,6 @@ public class Proxy {
         } else {
             this.http_read(ci)
         }
-    }
-
-    fun sock_recv_str(id: uint64, acc: bytes) -> bool {
-        // читаем часть и складываем в acc (binary-safe через read_bytes)
-        set tmp: uint8[] = []
-        set n = 0
-        // read через read_bytes в статический буфер 65536
-        sus {
-            set cs = init TcpStream(id)
-            set buf = cast(cast(65536, "int64"), "bytes")
-            // kk: Yukino bytes with fixed cap — неизвестно; fallback: read() → string → push по байтам
-            set s = cs.read(65536)
-            if s.len() == 0 { return false }
-            for i in 0..s.len() {
-                acc.push(s[i])
-            }
-            rewrite n = s.len()
-        } catch {
-            return false
-        }
-        return true
     }
 
     fun socks_read(ci: int64) {

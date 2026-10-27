@@ -25,7 +25,7 @@ fun test_headers_oversize() {
 }
 
 fun string_to_bytes(s: string) -> bytes {
-    set out: bytes = []
+    set out: bytes = cast("", "bytes")
     for i in 0..s.len() { out.push(s[i]) }
     return out
 }
