@@ -4,7 +4,7 @@ load std.io: print
 #[test]
 fun test_connect_target_simple() {
     set b = string_to_bytes("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
-    set t = connect_target(b)
+    set t = connect_target(ref b)
     assert(t != null, "target parsed")
     set s = t ?? "x"
     assert(s == "example.com:443", "target content")
@@ -13,15 +13,15 @@ fun test_connect_target_simple() {
 #[test]
 fun test_connect_incomplete() {
     set b = string_to_bytes("CONNECT example.com:443 HTTP/1.1\r\n")
-    set t = connect_target(b)
+    set t = connect_target(ref b)
     assert(t == null, "no headers end → null")
 }
 
 #[test]
 fun test_headers_oversize() {
     set b = string_to_bytes("GET / HTTP/1.1")
-    assert(headers_oversize(b, 10), "oversize detected")
-    assert(!headers_oversize(b, 100), "small ok")
+    assert(headers_oversize(ref b, 10), "oversize detected")
+    assert(!headers_oversize(ref b, 100), "small ok")
 }
 
 fun string_to_bytes(s: string) -> bytes {

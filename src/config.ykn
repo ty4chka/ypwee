@@ -17,8 +17,8 @@ public class UserStore {
                 if line[j] == 58u8 { rewrite sep = j; break }
             }
             if sep <= 0 { continue }
-            set u = string::from_raw_parts(line.as_ptr(), cast(sep, "int64"))
-            set p = string::from_raw_parts(cast(line.as_ptr() + sep + 1, "ptr<uint8>"), cast(line.len() - sep - 1, "int64"))
+            set u: string = string::from_raw_parts(line.as_ptr(), cast(sep, "int64"))
+            set p: string = string::from_raw_parts(cast(line.as_ptr() + sep + 1, "ptr<uint8>"), cast(line.len() - sep - 1, "int64"))
             if u == user && p == pass { return true }
         }
         return false
@@ -83,7 +83,7 @@ public class Config {
         if key == "allow-all" { if val == "true" { this.allow_targets.push("*") } }
     }
 
-    fun target_allowed(ref host: string) -> bool {
+    fun target_allowed(host: string) -> bool {
         if !this.allow_private_targets && is_private_target(host) { return false }
         for i in 0..this.allow_targets.len() {
             set a: string = this.allow_targets[i]
