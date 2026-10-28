@@ -244,7 +244,7 @@ public class Proxy {
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
             rewrite this.last_chunk = cs.read(4096)
-            print("[ypwee][trace] read len=" + i64_to_string(cast(chunk.len(), "int64")) + "\n")
+            print("[ypwee][trace] read len=" + i64_to_string(cast(this.last_chunk.len(), "int64")) + "\n")
             if this.last_chunk.len() == 0 {
                 this.rearm(ci)
                 return
