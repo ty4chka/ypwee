@@ -594,23 +594,24 @@ public class Proxy {
             this.u_ci.remove_i64(uk)
             return
         }
-        set chunk: string = ""
+        set rbuf: bytes = cast("", "bytes")
+        rbuf.reserve(65536)
+        set got: int64 = 0
         sus {
             set us2 = init TcpStream(cast(usopt ?? 0, "uint64"))
-            rewrite chunk = us2.read(65536)
+            rewrite got = us2.read_bytes(rbuf.as_ptr(), 65536)
         } catch {
             this.drop_client(ci)
             return
         }
-        if chunk.len() == 0 {
-            // апстрим закрыл соединение
+        if got <= 0 {
             this.drop_client(ci)
             return
         }
         set okw: int64 = 1
         sus {
             set cs = init TcpStream(cast(csopt ?? 0, "uint64"))
-            cs.write(chunk)
+            cs.write_bytes(rbuf.as_ptr(), got)
             cs.flush()
         } catch {
             rewrite okw = 0
@@ -633,22 +634,24 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        set chunk: string = ""
+        set sbuf: bytes = cast("", "bytes")
+        sbuf.reserve(65536)
+        set got: int64 = 0
         sus {
             set cs = init TcpStream(cast(csopt ?? 0, "uint64"))
-            rewrite chunk = cs.read(65536)
+            rewrite got = cs.read_bytes(sbuf.as_ptr(), 65536)
         } catch {
             this.drop_client(ci)
             return
         }
-        if chunk.len() == 0 {
+        if got <= 0 {
             this.drop_client(ci)
             return
         }
         set okw: int64 = 1
         sus {
             set us = init TcpStream(cast(usopt ?? 0, "uint64"))
-            us.write(chunk)
+            us.write_bytes(sbuf.as_ptr(), got)
             us.flush()
         } catch {
             rewrite okw = 0
