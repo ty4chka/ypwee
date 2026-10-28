@@ -237,12 +237,12 @@ public class Proxy {
         print("[ypwee][trace] socks_read enter\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
-        set buf: bytes = cast("", "bytes")
+        set buf: uint8[] = []
         buf.reserve(4096)
         set got: int64 = 0
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite got = cs.read_bytes(buf.as_ptr(), 4096)
+            rewrite got = cs.read_bytes(cast(buf.as_ptr(), "ptr<uint8>"), 4096)
             print("[ypwee][trace] read bytes=" + i64_to_string(got) + "\n")
             if got <= 0 {
                 this.rearm(ci)
@@ -258,8 +258,7 @@ public class Proxy {
         set st: int64 = this.c_state.get_i64(ci) ?? 0
         print("[ypwee][trace] post-read 2 st=" + i64_to_string(st) + "\n")
         set n: int64 = got
-        set buf_ptr: ptr<uint8> = buf.as_ptr()
-        set bv: uint8[] = slice::from_raw_parts(buf_ptr, n, 4096)
+        set bv: uint8[] = buf
         print("[ypwee][trace] post-read 3 n=" + i64_to_string(n) + "\n")
 
 
@@ -394,7 +393,13 @@ public class Proxy {
             return
         }
         set n: int64 = got
-        set acc: string = string::from_raw_parts(buf_ptr, got)
+        set acc_c: bytes = []
+        set j: int64 = 0
+        while j < got {
+            acc_c.push(bv[j])
+            rewrite j += 1
+        }
+        rewrite this.c_acc.set(i64_to_string(ci), cast(acc_c, "string"))
         this.rearm(ci)
         // ищем конец заголовков
         set end = -1
