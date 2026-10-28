@@ -350,7 +350,7 @@ public class Proxy {
             set uname: string = str_slice(rest, 2, u_end)
             set upass: string = str_slice(rest, p_start, total)
             set okc: bool = false
-            eprint("[ypwee] auth uname=[" + uname + "] passlen=" + i64_to_string(cast(upass.len(), "int64")) + "\n")
+            
                 set okc: bool = false
                 set want_u: string = "alice"
                 set want_p: string = "changeMe1"
