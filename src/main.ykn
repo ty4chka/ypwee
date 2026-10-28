@@ -236,14 +236,12 @@ public class Proxy {
         print("[ypwee][trace] socks_read enter\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
-        set buf: uint8[] = []
-        buf.reserve(4096)
-        set got: int64 = 0
+        set chunk: string = ""
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite got = cs.read_bytes(cast(buf.as_ptr(), "ptr<uint8>"), 4096)
-            print("[ypwee][trace] read bytes=" + i64_to_string(got) + "\n")
-            if got <= 0 {
+            rewrite chunk = cs.read(4096)
+            print("[ypwee][trace] read len=" + i64_to_string(cast(chunk.len(), "int64")) + "\n")
+            if chunk.len() == 0 {
                 this.rearm(ci)
                 return
             }
@@ -253,26 +251,28 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        print("[ypwee][trace] post-read 1\n")
         set st: int64 = this.c_state.get_i64(ci) ?? 0
-        print("[ypwee][trace] post-read 2 st=" + i64_to_string(st) + "\n")
-        set n: int64 = got
-                print("[ypwee][trace] post-read 3 n=" + i64_to_string(n) + "\n")
-
+        set n: int64 = cast(chunk.len(), "int64")
+        print("[ypwee][trace] post-read n=" + i64_to_string(n) + " st=" + i64_to_string(st) + "\n")
 
         // ── VER+NMETHODS
         if st == 1 {
-            if n < 2 { return }
-            if buf[0] != 5u8 { this.drop_client(ci); return }
-            set nm = cast(buf[1], "int64")
+            if n < 2 { 
+                this.rearm(ci)
+                return 
+            }
+            if byte_at(chunk, 0) != 5u8 { this.drop_client(ci); return }
+            set nm = cast(byte_at(chunk, 1), "int64")
             if nm < 1 || nm > 255 { this.drop_client(ci); return }
-            if n < 2 + nm { return }
+            if n < 2 + nm { 
+                this.rearm(ci)
+                return 
+            }
             set has_up = false
             for i in 2..2 + nm {
-                if buf[i] == 2u8 { rewrite has_up = true }
+                if byte_at(chunk, i) == 2u8 { rewrite has_up = true }
             }
             if !has_up {
-                print("[ypwee][trace] no userpass method\n")
                 this.send_client(ci, method_reply(255u8))
                 this.drop_client(ci)
                 return
@@ -286,32 +286,41 @@ public class Proxy {
 
         // ── USERPASS
         if st == 3 {
-            print("[ypwee][trace] USERPASS branch enter\n")
+            print("[ypwee][trace] USERPASS enter n=" + i64_to_string(n) + "\n")
             if n < 1 { return }
-            set ulen = cast(buf[0], "int64")
-            if n < 1 + ulen + 1 { return }
-            set plen = cast(buf[1 + ulen], "int64")
-            if n < 2 + ulen + plen { return }
-            print("[ypwee][trace] ulen=" + i64_to_string(ulen) + " plen=" + i64_to_string(plen) + "\n")
+            set ulen = cast(byte_at(chunk, 0), "int64")
+            print("[ypwee][trace] ulen=" + i64_to_string(ulen) + "\n")
+            if n < 1 + ulen + 1 { 
+                this.rearm(ci)
+                return 
+            }
+            set plen = cast(byte_at(chunk, 1 + ulen), "int64")
+            if n < 2 + ulen + plen { 
+                this.rearm(ci)
+                return 
+            }
+            print("[ypwee][trace] plen=" + i64_to_string(plen) + "\n")
             set ub: bytes = cast("", "bytes")
             set jj: int64 = 1
             while jj < 1 + ulen {
-                ub.push(buf[jj])
+                ub.push(byte_at(chunk, jj))
                 rewrite jj += 1
             }
             set pb: bytes = cast("", "bytes")
             rewrite jj = 2 + ulen
             while jj < 2 + ulen + plen {
-                pb.push(buf[jj])
+                pb.push(byte_at(chunk, jj))
                 rewrite jj += 1
             }
             set u: string = cast(ub, "string")
             set p: string = cast(pb, "string")
+            print("[ypwee][trace] checking user=[" + u + "] plen=" + i64_to_string(plen) + "\n")
             set full: string = u + ":" + p
             set ok = false
             for k in 0..this.cfg.users.len() {
                 if this.cfg.users[k] == full { rewrite ok = true }
             }
+            print("[ypwee][trace] auth ok=" + i64_to_string(cast(ok, "int64")) + "\n")
             this.send_client(ci, userpass_reply(ok))
             if !ok {
                 this.drop_client(ci)
@@ -324,37 +333,48 @@ public class Proxy {
 
         // ── REQUEST
         if st == 5 {
+            print("[ypwee][trace] REQUEST enter n=" + i64_to_string(n) + "\n")
             if n < 5 { return }
-            set atyp = cast(buf[3], "int64")
+            set atyp = cast(byte_at(chunk, 3), "int64")
             set need = 0
             set host: string = ""
             if atyp == 1 {
                 rewrite need = 10
-                if n < 10 { return }
-                rewrite host = i64_to_string(cast(buf[4], "int64")) + "." +
-                    i64_to_string(cast(buf[5], "int64")) + "." +
-                    i64_to_string(cast(buf[6], "int64")) + "." +
-                    i64_to_string(cast(buf[7], "int64"))
+                if n < 10 { 
+                    this.rearm(ci)
+                    return 
+                }
+                rewrite host = i64_to_string(cast(byte_at(chunk, 4), "int64")) + "." +
+                    i64_to_string(cast(byte_at(chunk, 5), "int64")) + "." +
+                    i64_to_string(cast(byte_at(chunk, 6), "int64")) + "." +
+                    i64_to_string(cast(byte_at(chunk, 7), "int64"))
             }
             if atyp == 3 {
-                set dlen = cast(buf[4], "int64")
+                set dlen = cast(byte_at(chunk, 4), "int64")
                 rewrite need = 7 + dlen
-                if n < 5 + dlen + 2 { return }
+                if n < 5 + dlen + 2 { 
+                    this.rearm(ci)
+                    return 
+                }
                 set hb: bytes = cast("", "bytes")
                 set hz: int64 = 5
                 while hz < 5 + dlen {
-                    hb.push(buf[hz])
+                    hb.push(byte_at(chunk, hz))
                     rewrite hz += 1
                 }
                 rewrite host = cast(hb, "string")
             }
             if atyp == 4 {
                 rewrite need = 22
-                if n < 22 { return }
+                if n < 22 { 
+                    this.rearm(ci)
+                    return 
+                }
                 rewrite host = "v6-placeholder"
             }
-            set port = cast(buf[need - 2], "int64") * 256 + cast(buf[need - 1], "int64")
-            set cmd = cast(buf[1], "int64")
+            set port = cast(byte_at(chunk, need - 2), "int64") * 256 + cast(byte_at(chunk, need - 1), "int64")
+            set cmd = cast(byte_at(chunk, 1), "int64")
+            print("[ypwee][trace] host=" + host + " port=" + i64_to_string(port) + "\n")
             if cmd != 1 {
                 this.send_client(ci, socks5_reply(REP_NOT_SUPP))
                 this.drop_client(ci)
