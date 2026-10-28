@@ -70,10 +70,9 @@ public class Aes256Ctr {
     fun init(key32: bytes, counter16: bytes) {
         rewrite this.counter_pos = 16
         set nn: uint8[] = []
-        set kc2: bytes = counter16
         set k: int64 = 0
         while k < 16 {
-            nn.push(byte_at(kc2, k))
+            nn.push(byte_at(counter16, k))
             rewrite k += 1
         }
         rewrite this.nonce = nn
@@ -86,10 +85,9 @@ public class Aes256Ctr {
         rewrite this.keystream = ks
         // key expansion
         set w: uint8[] = []
-        set kc3: bytes = key32
         set kc: int64 = 0
         while kc < 32 {
-            w.push(byte_at(kc3, kc))
+            w.push(byte_at(key32, kc))
             rewrite kc += 1
         }
         set Nk: int64 = 8
@@ -164,12 +162,11 @@ public class Aes256Ctr {
     }
 
     fun apply(data: bytes) -> bytes {
-        set dd: bytes = data
         set out: bytes = cast("", "bytes")
         set i: int64 = 0
-        while i < dd.len() {
+        while i < data.len() {
             if this.counter_pos >= 16 { this.next_keystream() }
-            set db: uint8 = byte_at(dd, i)
+            set db: uint8 = byte_at(data, i)
             set ksb: uint8 = this.keystream[this.counter_pos]
             out.push(db ^ ksb)
             rewrite this.counter_pos += 1
