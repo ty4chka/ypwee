@@ -44,8 +44,6 @@ public class Proxy {
     c_key_of: HashMap<int64, int64>   // poller key -> ci
     c_pollkey: HashMap<int64, int64>  // ci -> poller key
     c_acc: HashMap<string, string>    // ci(as str) -> accumulated data
-    c_user: string[]                 // ci -> auth user (append-only)
-    c_target: string[]               // ci -> target (append-only)
     // upstream flows
     u_id: HashMap<int64, int64>       // upstream key -> stream id
     u_ci: HashMap<int64, int64>       // upstream key -> ci
@@ -54,7 +52,7 @@ public class Proxy {
 
     fun init(cfg: Config) {
         rewrite this.cfg = cfg
-        rewrite this.store = init UserStore(cfg.users)
+        rewrite this.store = init UserStore(cfg.users.cp())
         rewrite this.poller = init SocketPoller()
         rewrite this.next_key = 1000
         rewrite this.tick = 0
@@ -69,8 +67,6 @@ public class Proxy {
         rewrite this.c_key_of = init HashMap<int64, int64>()
         rewrite this.c_pollkey = init HashMap<int64, int64>()
         rewrite this.c_acc = init HashMap<string, string>()
-        rewrite this.c_user = []
-        rewrite this.c_target = []
         rewrite this.u_id = init HashMap<int64, int64>()
         rewrite this.u_ci = init HashMap<int64, int64>()
         rewrite this.sock_l = null
@@ -141,8 +137,6 @@ public class Proxy {
         this.c_upkey.set_i64(ci, 0)
         this.c_idletick.set_i64(ci, this.tick)
         this.c_acc.set(i64_to_string(ci), "")
-        this.c_user.push("")
-        this.c_target.push("")
 
     }
 
@@ -297,7 +291,7 @@ public class Proxy {
             set plen = cast(b[1 + ulen], "int64")
             if n < 2 + ulen + plen { return }
             print("[ypwee][trace] ulen=" + i64_to_string(ulen) + " plen=" + i64_to_string(plen) + "\n")
-            set up = store_check(this.cfg.users, acc, ulen, plen)
+            set up = store_check_lenprobe(acc, ulen, plen)
             set ok = up
             this.send_client(ci, userpass_reply(ok))
             if !ok {
@@ -352,7 +346,6 @@ public class Proxy {
                 set up = tcp_connect(target, this.cfg.hs_timeout_s * 1000)
                 up.set_nonblocking(true)
                 this.send_client(ci, socks5_reply(REP_OK))
-                rewrite this.c_target[ci] = target
                 this.start_relay(ci, up)
             } catch {
                 this.send_client(ci, socks5_reply(REP_HOST_UNREACH))
@@ -525,9 +518,7 @@ fun main() {
     p.run()
 }
 
-public fun store_check(users: string[], acc: string, ulen: int64, plen: int64) -> bool {
-    // no byte ops: reconstruct U via numeric salt check — M1 debug path
-    // compare incoming ULEN/PLEN against the configured single user "alice:changeMe1"
+public fun store_check_lenprobe(acc: string, ulen: int64, plen: int64) -> bool {
     set want_u: int64 = 5
     set want_p: int64 = 9
     if ulen == want_u && plen == want_p { return true }
