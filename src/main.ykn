@@ -258,7 +258,8 @@ public class Proxy {
         set st: int64 = this.c_state.get_i64(ci) ?? 0
         print("[ypwee][trace] post-read 2 st=" + i64_to_string(st) + "\n")
         set n: int64 = got
-        set bv: uint8[] = slice::from_raw_parts(buf.as_ptr(), n, 4096)
+        set buf_ptr: ptr<uint8> = buf.as_ptr()
+        set bv: uint8[] = slice::from_raw_parts(buf_ptr, n, 4096)
         print("[ypwee][trace] post-read 3 n=" + i64_to_string(n) + "\n")
 
 
@@ -392,7 +393,7 @@ public class Proxy {
             return
         }
         set n: int64 = got
-        set acc: string = string::from_raw_parts(buf.as_ptr(), got)
+        set acc: string = string::from_raw_parts(buf_ptr, got)
         this.rearm(ci)
         // ищем конец заголовков
         set end = -1
