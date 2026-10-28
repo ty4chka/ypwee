@@ -215,7 +215,7 @@ public class Proxy {
             this.relay_up_to_client(uiopt ?? 0, k)
             return
         }
-        set ci = this.c_find(k)
+        set ci: int64 = this.c_find(k)
         if ci < 0 { return }
         set issocks: int64 = this.c_sock.get_i64(ci) ?? 0
         if issocks == 1 {
