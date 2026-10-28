@@ -128,13 +128,11 @@ public class Proxy {
     fun push_client(k: uint64, id: uint64, is_socks: bool) {
         this.c_key.push(k)
         this.c_id.push(id)
-        set s0: int64 = 1
         if is_socks {
-            rewrite s0 = 1
+            this.c_state.push(1)
         } else {
-            rewrite s0 = 6
+            this.c_state.push(6)
         }
-        this.c_state.push(s0)
         this.c_is_socks.push(is_socks)
         set emp: bytes = cast("", "bytes")
         this.c_acc.push(emp)
