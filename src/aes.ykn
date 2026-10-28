@@ -70,9 +70,10 @@ public class Aes256Ctr {
     fun init(key32: bytes, counter16: bytes) {
         rewrite this.counter_pos = 16
         set nn: uint8[] = []
+        set kc2: bytes = counter16.cp()
         set k: int64 = 0
         while k < 16 {
-            nn.push(byte_at(counter16, k))
+            nn.push(byte_at(kc2, k))
             rewrite k += 1
         }
         rewrite this.nonce = nn
@@ -85,9 +86,10 @@ public class Aes256Ctr {
         rewrite this.keystream = ks
         // key expansion
         set w: uint8[] = []
+        set kc3: bytes = key32.cp()
         set kc: int64 = 0
         while kc < 32 {
-            w.push(byte_at(key32, kc))
+            w.push(byte_at(kc3, kc))
             rewrite kc += 1
         }
         set Nk: int64 = 8
@@ -162,11 +164,12 @@ public class Aes256Ctr {
     }
 
     fun apply(data: bytes) -> bytes {
+        set dd: bytes = data.cp()
         set out: bytes = cast("", "bytes")
         set i: int64 = 0
-        while i < data.len() {
+        while i < dd.len() {
             if this.counter_pos >= 16 { this.next_keystream() }
-            set db: uint8 = byte_at(data, i)
+            set db: uint8 = byte_at(dd, i)
             set ksb: uint8 = this.keystream[this.counter_pos]
             out.push(db ^ ksb)
             rewrite this.counter_pos += 1
@@ -177,7 +180,7 @@ public class Aes256Ctr {
 }
 
 // AES-256 single block encrypt
-public fun aes_encrypt_block_e(input16: uint8[], round_keys: uint8[]) -> bytes {
+public fun aes_encrypt_block_e(ref input16: uint8[], ref round_keys: uint8[]) -> bytes {
     set state: uint8[] = []
     set i: int64 = 0
     while i < 16 {
@@ -205,7 +208,7 @@ public fun aes_encrypt_block_e(input16: uint8[], round_keys: uint8[]) -> bytes {
     return out
 }
 
-public fun add_round_key(state: uint8[], round_keys: uint8[], round: int64) {
+public fun add_round_key(ref ~state: uint8[], round_keys: uint8[], round: int64) {
     set i: int64 = 0
     while i < 16 {
         set v: uint8 = state[i] ^ round_keys[round * 16 + i]
@@ -214,7 +217,7 @@ public fun add_round_key(state: uint8[], round_keys: uint8[], round: int64) {
     }
 }
 
-public fun sub_bytes(state: uint8[]) {
+public fun sub_bytes(ref ~state: uint8[]) {
     set i: int64 = 0
     while i < 16 {
         set v: uint8 = sbox_apply(state[i])
@@ -223,7 +226,7 @@ public fun sub_bytes(state: uint8[]) {
     }
 }
 
-public fun shift_rows(state: uint8[]) {
+public fun shift_rows(ref ~state: uint8[]) {
     set t1a: uint8 = state[1]
     rewrite state[1] = state[5]
     rewrite state[5] = state[9]
@@ -242,7 +245,7 @@ public fun shift_rows(state: uint8[]) {
     rewrite state[3] = t3a
 }
 
-public fun mix_columns(state: uint8[]) {
+public fun mix_columns(ref ~state: uint8[]) {
     set col: int64 = 0
     while col < 4 {
         set base: int64 = col * 4
