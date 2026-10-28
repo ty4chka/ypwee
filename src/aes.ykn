@@ -2,7 +2,10 @@
 // Pure Yukino. FIPS-197 S-box hardcoded, gf(2^8) helpers, AES-256 key expansion,
 // single-block encrypt, CTR keystream generator.
 
-load std.strings: byte_at, slice as str_slice
+
+load std.strings: byte_at
+load std.strings: slice as str_slice
+
 
 public fun xtime(a: uint8) -> uint8 {
     // GF(2^8) ×2
@@ -140,7 +143,8 @@ public class Aes256Ctr {
         set ks: bytes = aes_encrypt_block_e(block, this.round_keys)
         set k2: int64 = 0
         while k2 < 16 {
-            this.keystream[k2] = byte_at(ks, k2)
+            set kv: uint8 = byte_at(ks, k2)
+            rewrite this.keystream[k2] = kv
             rewrite k2 += 1
         }
         rewrite this.counter_pos = 0
@@ -204,7 +208,8 @@ public fun aes_encrypt_block_e(input16: uint8[], round_keys: uint8[]) -> bytes {
 public fun add_round_key(state: uint8[], round_keys: uint8[], round: int64) {
     set i: int64 = 0
     while i < 16 {
-        state[i] = state[i] ^ round_keys[round * 16 + i]
+        set v: uint8 = state[i] ^ round_keys[round * 16 + i]
+        rewrite state[i] = v
         rewrite i += 1
     }
 }
@@ -212,7 +217,8 @@ public fun add_round_key(state: uint8[], round_keys: uint8[], round: int64) {
 public fun sub_bytes(state: uint8[]) {
     set i: int64 = 0
     while i < 16 {
-        state[i] = sbox_apply(state[i])
+        set v: uint8 = sbox_apply(state[i])
+        rewrite state[i] = v
         rewrite i += 1
     }
 }
@@ -244,10 +250,14 @@ public fun mix_columns(state: uint8[]) {
         set a1: uint8 = state[base + 1]
         set a2: uint8 = state[base + 2]
         set a3: uint8 = state[base + 3]
-        state[base]     = gmul(a0, 2u8) ^ gmul(a1, 3u8) ^ a2 ^ a3
-        state[base + 1] = a0 ^ gmul(a1, 2u8) ^ gmul(a2, 3u8) ^ a3
-        state[base + 2] = a0 ^ a1 ^ gmul(a2, 2u8) ^ gmul(a3, 3u8)
-        state[base + 3] = gmul(a0, 3u8) ^ a1 ^ a2 ^ gmul(a3, 2u8)
+        set v0: uint8 = gmul(a0, 2u8) ^ gmul(a1, 3u8) ^ a2 ^ a3
+        set v1: uint8 = a0 ^ gmul(a1, 2u8) ^ gmul(a2, 3u8) ^ a3
+        set v2: uint8 = a0 ^ a1 ^ gmul(a2, 2u8) ^ gmul(a3, 3u8)
+        set v3: uint8 = gmul(a0, 3u8) ^ a1 ^ a2 ^ gmul(a3, 2u8)
+        rewrite state[base] = v0
+        rewrite state[base + 1] = v1
+        rewrite state[base + 2] = v2
+        rewrite state[base + 3] = v3
         rewrite col += 1
     }
 }
