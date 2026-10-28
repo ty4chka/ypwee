@@ -683,6 +683,12 @@ fun main() {
         rt::exit(1)
     }
     print("[ypwee] mode=" + cfg.mode + " users=" + i64_to_string(cast(cfg.users.len(), "int64")) + "\n")
+    print("[ypwee] cfg_dumpallow_len=" + i64_to_string(cast(cfg.allow_targets.len(), "int64")) + "\n")
+    set ua: int64 = 0
+    while ua < cfg.allow_targets.len() {
+        print("[ypwee] cfgallow=[" + cfg.allow_targets[ua] + "]\n")
+        rewrite ua += 1
+    }
     set uu: int64 = 0
     while uu < cfg.users.len() {
         print("[ypwee] cfguser=[" + cfg.users[uu] + "]\n")
