@@ -43,9 +43,9 @@ public class Proxy {
     c_idletick: HashMap<int64, int64> // ci -> tick of last activity
     c_key_of: HashMap<int64, int64>   // poller key -> ci
     c_pollkey: HashMap<int64, int64>  // ci -> poller key
-    c_acc: HashMap<int64, string>     // ci -> accumulated bytes as string
-    c_user: HashMap<int64, string>    // ci -> auth user
-    c_target: HashMap<int64, string>  // ci -> target host:port
+    c_acc: string[]                  // ci -> accumulated text (append-only by ci)
+    c_user: string[]                 // ci -> auth user (append-only)
+    c_target: string[]               // ci -> target (append-only)
     // upstream flows
     u_id: HashMap<int64, int64>       // upstream key -> stream id
     u_ci: HashMap<int64, int64>       // upstream key -> ci
@@ -68,9 +68,9 @@ public class Proxy {
         rewrite this.c_idletick = init HashMap<int64, int64>()
         rewrite this.c_key_of = init HashMap<int64, int64>()
         rewrite this.c_pollkey = init HashMap<int64, int64>()
-        rewrite this.c_acc = init HashMap<int64, string>()
-        rewrite this.c_user = init HashMap<int64, string>()
-        rewrite this.c_target = init HashMap<int64, string>()
+        rewrite this.c_acc = []
+        rewrite this.c_user = []
+        rewrite this.c_target = []
         rewrite this.u_id = init HashMap<int64, int64>()
         rewrite this.u_ci = init HashMap<int64, int64>()
         rewrite this.sock_l = null
@@ -128,44 +128,44 @@ public class Proxy {
     fun push_client(k: int64, id: int64, is_socks: bool) {
         rewrite this.cis += 1
         set ci = this.cis
-        this.c_key_of.set(k, ci)
-        this.c_pollkey.set(ci, k)
-        this.c_id.set(ci, id)
+        this.c_key_of.set_i64(k, ci)
+        this.c_pollkey.set_i64(ci, k)
+        this.c_id.set_i64(ci, id)
         if is_socks {
-            this.c_state.set(ci, 1)
+            this.c_state.set_i64(ci, 1)
         } else {
-            this.c_state.set(ci, 6)
+            this.c_state.set_i64(ci, 6)
         }
-        this.c_upkey.set(ci, 0)
-        this.c_idletick.set(ci, this.tick)
-        this.c_acc.set(ci, "")
-        this.c_user.set(ci, "")
-        this.c_target.set(ci, "")
+        this.c_upkey.set_i64(ci, 0)
+        this.c_idletick.set_i64(ci, this.tick)
+        this.c_acc.push("")
+        this.c_user.push("")
+        this.c_target.push("")
 
     }
 
     fun c_find(key: int64) -> int64 {
-        set r = this.c_key_of.get(key)
+        set r = this.c_key_of.get_i64(key)
         if r == null { return -1 }
         return r ?? -1
     }
 
     fun drop_client(ci: int64) {
-        set idopt = this.c_id.get(ci)
+        set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
         set id: int64 = idopt ?? 0
-        set ukopt = this.c_upkey.get(ci)
+        set ukopt = this.c_upkey.get_i64(ci)
         set uk: int64 = ukopt ?? 0
         if uk != 0 {
-            set usopt = this.u_id.get(uk)
+            set usopt = this.u_id.get_i64(uk)
             if usopt != null {
                 set usid: int64 = usopt ?? 0
                 sus {
                     set us = init TcpStream(cast(usid, "uint64"))
                     us.close()
                 } catch { space }
-                this.u_id.remove(uk)
-                this.u_ci.remove(uk)
+                this.u_id.remove_i64(uk)
+                this.u_ci.remove_i64(uk)
             }
         }
         sus {
@@ -176,26 +176,23 @@ public class Proxy {
             set tmps = init TcpStream(cast(id, "uint64"))
             this.poller.remove_stream(ref tmps)
         } catch { space }
-        set kopt = this.c_pollkey.get(ci)
-        if kopt != null { this.c_key_of.remove(kopt ?? 0) }
-        this.c_pollkey.remove(ci)
-        this.c_id.remove(ci)
-        this.c_state.remove(ci)
-        this.c_upkey.remove(ci)
-        this.c_idletick.remove(ci)
-        this.c_acc.remove(ci)
-        this.c_user.remove(ci)
-        this.c_target.remove(ci)
+        set kopt = this.c_pollkey.get_i64(ci)
+        if kopt != null { this.c_key_of.remove_i64(kopt ?? 0) }
+        this.c_pollkey.remove_i64(ci)
+        this.c_id.remove_i64(ci)
+        this.c_state.remove_i64(ci)
+        this.c_upkey.remove_i64(ci)
+        this.c_idletick.remove_i64(ci)
     }
 
     fun expire() {
         // обходим все выданные ci; удаляем только живые записи
         set ci = this.cis
         while ci >= 1 {
-            set stopt = this.c_state.get(ci)
+            set stopt = this.c_state.get_i64(ci)
             if stopt != null {
                 set st: int64 = stopt ?? 0
-                set idl = this.c_idletick.get(ci) ?? 0
+                set idl = this.c_idletick.get_i64(ci) ?? 0
                 if st < 10 {
                     if this.tick - idl > this.cfg.hs_timeout_s {
                         eprint("[ypwee] handshake timeout\n")
@@ -213,14 +210,14 @@ public class Proxy {
 
     fun on_readable(key: uint64) {
         set k: int64 = cast(key, "int64")
-        set uiopt = this.u_ci.get(k)
+        set uiopt = this.u_ci.get_i64(k)
         if uiopt != null {
             this.relay_up_to_client(uiopt ?? 0, k)
             return
         }
         set ci = this.c_find(k)
         if ci < 0 { return }
-        set issocks: int64 = this.c_sock.get(ci) ?? 0
+        set issocks: int64 = this.c_sock.get_i64(ci) ?? 0
         if issocks == 1 {
             this.socks_read(ci)
         } else {
@@ -229,7 +226,7 @@ public class Proxy {
     }
     fun socks_read(ci: int64) {
         print("[ypwee][trace] socks_read enter\n")
-        set idopt = this.c_id.get(ci)
+        set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
@@ -239,18 +236,17 @@ public class Proxy {
                 this.drop_client(ci)
                 return
             }
-            this.c_idletick.set(ci, this.tick)
-            set prev: string = this.c_acc.get(ci) ?? ""
-            set cb: string = chunk
-            rewrite prev = prev + cb
-            this.c_acc.set(ci, prev)
+            this.c_idletick.set_i64(ci, this.tick)
+            set prev: string = this.c_acc[ci]
+            rewrite prev = prev + chunk
+            this.c_acc[ci] = prev
         } catch {
             print("[ypwee][trace] socks_read EXC\n")
             this.drop_client(ci)
             return
         }
-        set st: int64 = this.c_state.get(ci) ?? 0
-        set acc = this.c_acc.get(ci) ?? ""
+        set st: int64 = this.c_state.get_i64(ci) ?? 0
+        set acc: string = this.c_acc[ci]
         set n: int64 = cast(acc.len(), "int64")
 
         // ── VER+NMETHODS
@@ -272,8 +268,8 @@ public class Proxy {
             }
             print("[ypwee][trace] send method_reply(2)\n")
             this.send_client(ci, method_reply(2u8))
-            this.c_acc.set(ci, "")
-            this.c_state.set(ci, 3)
+            this.c_acc[ci] = ""
+            this.c_state.set_i64(ci, 3)
             return
         }
 
@@ -289,13 +285,13 @@ public class Proxy {
             set p: string = string::from_raw_parts(cast(cast(b.as_ptr(), "int64") + 2 + ulen, "ptr<uint8>"), plen)
             set ok = this.store.check(u, p)
             this.send_client(ci, userpass_reply(ok))
-            this.c_acc.set(ci, "")
+            this.c_acc[ci] = ""
             if !ok {
                 this.drop_client(ci)
                 return
             }
-            this.c_user.set(ci, u)
-            this.c_state.set(ci, 5)
+            this.c_user[ci] = u
+            this.c_state.set_i64(ci, 5)
             return
         }
 
@@ -342,7 +338,7 @@ public class Proxy {
                 set up = tcp_connect(target, this.cfg.hs_timeout_s * 1000)
                 up.set_nonblocking(true)
                 this.send_client(ci, socks5_reply(REP_OK))
-                this.c_target.set(ci, target)
+                this.c_target[ci] = target
                 this.start_relay(ci, up)
             } catch {
                 this.send_client(ci, socks5_reply(REP_HOST_UNREACH))
@@ -353,7 +349,7 @@ public class Proxy {
     }
 
     fun send_client(ci: int64, data: bytes) {
-        set idopt = this.c_id.get(ci)
+        set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
@@ -363,7 +359,7 @@ public class Proxy {
     }
 
     fun http_read(ci: int64) {
-        set idopt = this.c_id.get(ci)
+        set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
@@ -372,15 +368,15 @@ public class Proxy {
                 this.drop_client(ci)
                 return
             }
-            this.c_idletick.set(ci, this.tick)
-            set prev: string = this.c_acc.get(ci) ?? ""
+            this.c_idletick.set_i64(ci, this.tick)
+            set prev: string = this.c_acc[ci]
             rewrite prev = prev + chunk
-            this.c_acc.set(ci, prev)
+            this.c_acc[ci] = prev
         } catch {
             this.drop_client(ci)
             return
         }
-        set acc = this.c_acc.get(ci) ?? ""
+        set acc: string = this.c_acc[ci]
         set b: bytes = cast(acc, "bytes")
         set n: int64 = cast(b.len(), "int64")
         // ищем конец заголовков
@@ -441,7 +437,7 @@ public class Proxy {
     }
 
     fun send_client_str(ci: int64, s: string) {
-        set idopt = this.c_id.get(ci)
+        set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
@@ -454,24 +450,24 @@ public class Proxy {
         rewrite this.next_key += 1
         set uk: int64 = this.next_key
         this.poller.add_stream(ref upstream, POLL_READABLE, cast(uk, "uint64"))
-        this.c_upkey.set(ci, uk)
-        this.c_state.set(ci, 10)
-        this.u_id.set(uk, cast(upstream.id, "int64"))
-        this.u_ci.set(uk, ci)
-        this.c_idletick.set(ci, this.tick)
+        this.c_upkey.set_i64(ci, uk)
+        this.c_state.set_i64(ci, 10)
+        this.u_id.set_i64(uk, cast(upstream.id, "int64"))
+        this.u_ci.set_i64(uk, ci)
+        this.c_idletick.set_i64(ci, this.tick)
     }
 
     fun relay_up_to_client(ci: int64, uk: int64) {
-        set usopt = this.u_id.get(uk)
+        set usopt = this.u_id.get_i64(uk)
         if usopt == null { return }
-        set csopt = this.c_id.get(ci)
+        set csopt = this.c_id.get_i64(ci)
         if csopt == null {
             sus {
                 set us = init TcpStream(cast(usopt ?? 0, "uint64"))
                 us.close()
             } catch { space }
-            this.u_id.remove(uk)
-            this.u_ci.remove(uk)
+            this.u_id.remove_i64(uk)
+            this.u_ci.remove_i64(uk)
             return
         }
         sus {
@@ -481,7 +477,7 @@ public class Proxy {
                 this.drop_client(ci)
                 return
             }
-            this.c_idletick.set(ci, this.tick)
+            this.c_idletick.set_i64(ci, this.tick)
             sus {
                 set cs = init TcpStream(cast(csopt ?? 0, "uint64"))
                 cs.write(chunk)
