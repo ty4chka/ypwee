@@ -683,6 +683,11 @@ fun main() {
         rt::exit(1)
     }
     print("[ypwee] mode=" + cfg.mode + " users=" + i64_to_string(cast(cfg.users.len(), "int64")) + "\n")
+    set uu: int64 = 0
+    while uu < cfg.users.len() {
+        print("[ypwee] cfguser=[" + cfg.users[uu] + "]\n")
+        rewrite uu += 1
+    }
     set p = init Proxy(cfg)
     p.run()
 }
