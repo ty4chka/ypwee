@@ -350,7 +350,9 @@ public class Proxy {
             set uname: string = str_slice(rest, 2, u_end)
             set upass: string = str_slice(rest, p_start, total)
             set okc: bool = false
-            if ulen > 0 { rewrite okc = this.store.check(uname, upass) }
+            eprint("[ypwee] auth uname=[" + uname + "] passlen=" + i64_to_string(cast(upass.len(), "int64")) + "\n")
+                set okc: bool = false
+                if ulen > 0 { rewrite okc = this.store.check(uname, upass) }
             if !okc {
                 eprint("[ypwee] socks5 auth failed\n")
                 this.send_client(ci, userpass_reply(false))
