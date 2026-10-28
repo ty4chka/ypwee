@@ -256,6 +256,15 @@ public class Proxy {
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
             rewrite chunk = cs.read(4096)
+            set more: int64 = 1
+            while more == 1 {
+                set extra: string = cs.read(4096)
+                if extra.len() == 0 {
+                    rewrite more = 0
+                } else {
+                    rewrite chunk = chunk + extra
+                }
+            }
             if chunk.len() == 0 {
                 this.rearm(ci)
                 return
