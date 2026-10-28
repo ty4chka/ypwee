@@ -246,7 +246,7 @@ public class Proxy {
             set chunk = cs.read(4096)
             print("[ypwee][trace] read chunk len=" + i64_to_string(cast(chunk.len(), "int64")) + "\n")
             if chunk.len() == 0 {
-                this.drop_client(ci)
+                this.rearm(ci)
                 return
             }
             this.c_idletick.set_i64(ci, this.tick)
@@ -254,7 +254,7 @@ public class Proxy {
             rewrite prev = prev + chunk
             rewrite this.c_acc[ci] = prev
         } catch {
-            print("[ypwee][trace] socks_read EXC\n")
+            print("[ypwee][trace] socks_read EXC (peer closed?)\n")
             this.drop_client(ci)
             return
         }
@@ -380,7 +380,7 @@ public class Proxy {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
             set chunk = cs.read(4096)
             if chunk.len() == 0 {
-                this.drop_client(ci)
+                this.rearm(ci)
                 return
             }
             this.c_idletick.set_i64(ci, this.tick)
@@ -490,7 +490,7 @@ public class Proxy {
             set us = init TcpStream(cast(usopt ?? 0, "uint64"))
             set chunk = us.read(65536)
             if chunk.len() == 0 {
-                this.drop_client(ci)
+                this.rearm(ci)
                 return
             }
             this.c_idletick.set_i64(ci, this.tick)
