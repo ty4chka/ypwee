@@ -133,8 +133,10 @@ public class Proxy {
         this.c_id.set_i64(ci, id)
         if is_socks {
             this.c_state.set_i64(ci, 1)
+            this.c_sock.set_i64(ci, 1)
         } else {
             this.c_state.set_i64(ci, 6)
+            this.c_sock.set_i64(ci, 0)
         }
         this.c_upkey.set_i64(ci, 0)
         this.c_idletick.set_i64(ci, this.tick)
