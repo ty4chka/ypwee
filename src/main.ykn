@@ -646,6 +646,7 @@ public class Proxy {
             us.write_bytes(sbuf.as_ptr(), got)
             us.flush()
         } catch {
+            eprint("[ypwee] relay up->us write EXC\n")
             rewrite okw = 0
         }
         if okw == 0 {
