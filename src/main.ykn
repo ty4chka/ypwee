@@ -452,6 +452,46 @@ public class Proxy {
         return -1
     }
 
+    fun mtproto_read(ci: int64) {
+        set idopt = this.c_id.get_i64(ci)
+        if idopt == null { return }
+        set chunk: string = ""
+        sus {
+            set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
+            rewrite chunk = cs.read(4096)
+        } catch {
+            this.drop_client(ci)
+            return
+        }
+        set st: int64 = this.c_state.get_i64(ci) ?? 0
+        if st == 50 || st == 51 {
+            if chunk.len() < 64 {
+                this.rearm(ci)
+                return
+            }
+            set secret_hex: string = this.cfg.mtproto_secret
+            set sec_bytes: bytes = secret_to_bytes(secret_hex)
+            set hs: bytes = cast(chunk, "bytes")
+            set dc_id: int64 = mtproto_parse_handshake_verify(hs, sec_bytes)
+            if dc_id < 0 {
+                this.drop_client(ci)
+                return
+            }
+            set proof: bytes = mtproto_server_proof(hs, sec_bytes)
+            this.send_client(ci, proof)
+            set target: string = dc_addr(dc_id)
+            sus {
+                set up = tcp_connect(target, this.cfg.hs_timeout_s * 1000)
+                up.set_nonblocking(true)
+                this.start_relay(ci, up)
+            } catch {
+                this.drop_client(ci)
+            }
+            return
+        }
+        this.rearm(ci)
+    }
+
     fun send_client(ci: int64, data: bytes) {
         set idopt = this.c_id.get_i64(ci)
 
@@ -706,52 +746,3 @@ public fun str_slice_host(bv: uint8[], from: int64, to: int64) -> string {
     return cast(b2, "string")
 }
 
-    fun mtproto_read(ci: int64) {
-        print("[ypwee] mtproto_read entered\n")
-        set idopt = this.c_id.get_i64(ci)
-        if idopt == null { return }
-        set chunk: string = ""
-        sus {
-            set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite chunk = cs.read(4096)
-        } catch {
-            this.drop_client(ci)
-            return
-        }
-        set st: int64 = this.c_state.get_i64(ci) ?? 0
-        if st == 50 {
-            // waiting handshake — читаем 64 байта handshake
-            if chunk.len() < 64 {
-                this.rearm(ci)
-                return
-            }
-            // parse handshake
-            set secret_hex = this.cfg.mtproto_secret
-            set sec_bytes = secret_to_bytes(secret_hex)
-            set hs: bytes = cast(chunk, "bytes")
-            set dc_id: int64 = mtproto_parse_handshake_verify(hs, sec_bytes)
-            if dc_id < 0 {
-                eprint("[ypwee] mtproto handshake failed, closing\n")
-                this.drop_client(ci)
-                return
-            }
-            // mtg-compatible: ответ клиенту = ServerHello HMAC proof
-            set proof: bytes = mtproto_server_proof(hs, sec_bytes)
-            // server sends 32-byte proof back to client (HMAC confirmed)
-            set hh: int64 = 0
-            this.send_client(ci, proof)
-            // connect to DC
-            set target: string = dc_addr(dc_id)
-            eprint("[ypwee] mtproto connected to " + target + "\n")
-            sus {
-                set up = tcp_connect(target, this.cfg.hs_timeout_s * 1000)
-                up.set_nonblocking(true)
-                this.start_relay(ci, up)
-            } catch {
-                this.drop_client(ci)
-            }
-            return
-        }
-        // downstream: relay bytes
-        this.rearm(ci)
-    }
