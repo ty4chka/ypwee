@@ -23,7 +23,8 @@
 
 load std.crypto: hmac_sha256
 load std.crypto.hmac: hmac_sha256_init
-load std.strings: byte_at, slice as str_slice
+load std.strings: byte_at
+load std.strings: slice as str_slice
 
 public fun secret_to_bytes(secret_hex: string) -> bytes {
     set out: bytes = cast("", "bytes")
