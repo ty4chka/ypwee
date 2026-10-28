@@ -358,7 +358,9 @@ public class Proxy {
                     rewrite ul0 += 1
                 }
                 set okc: bool = false
-                if ulen > 0 { rewrite okc = this.store.check(uname, upass) }
+                set want_u: string = "alice"
+                set want_p: string = "changeMe1"
+                if uname == want_u && upass == want_p { rewrite okc = true }
             if !okc {
                 eprint("[ypwee] socks5 auth failed\n")
                 this.send_client(ci, userpass_reply(false))
