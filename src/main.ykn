@@ -61,7 +61,7 @@ public class Proxy {
 
     fun init(cfg: Config) {
         rewrite this.cfg = cfg
-        rewrite this.store = init UserStore(cfg.users.cp())
+        rewrite this.store = init UserStore(cfg.users)
         rewrite this.poller = init SocketPoller()
         rewrite this.next_key = 1000
         rewrite this.tick = 0

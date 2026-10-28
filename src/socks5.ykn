@@ -5,7 +5,7 @@ public class UserStore {
     users: string[]
 
     fun init(users: string[]) {
-        rewrite this.users = users
+        rewrite this.users = users.cp()
     }
 
     fun check(user: string, pass: string) -> bool {
