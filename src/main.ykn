@@ -128,11 +128,13 @@ public class Proxy {
     fun push_client(k: uint64, id: uint64, is_socks: bool) {
         this.c_key.push(k)
         this.c_id.push(id)
+        set s0: uint64 = 1u64
         if is_socks {
-            this.c_state.push(HS_SOCKS_VER)
+            rewrite s0 = 1u64
         } else {
-            this.c_state.push(HS_HTTP_HEADERS)
+            rewrite s0 = 6u64
         }
+        this.c_state.push(s0)
         this.c_is_socks.push(is_socks)
         set emp: bytes = cast("", "bytes")
         this.c_acc.push(emp)
@@ -250,7 +252,8 @@ public class Proxy {
             return
         }
         set st: uint64 = this.c_state[ci]
-        if st == HS_SOCKS_VER { print("[ypwee][trace] state=HS_SOCKS_VER\n") }
+        print("[ypwee][trace] raw state low byte check\n")
+        if st == 1u64 { print("[ypwee][trace] state=1 VER\n") }
         if st == HS_SOCKS_USERPASS_LEN { print("[ypwee][trace] state=HS_SOCKS_USERPASS_LEN\n") }
         if st == HS_SOCKS_REQ { print("[ypwee][trace] state=HS_SOCKS_REQ\n") }
         if st == ST_RELAY_C { print("[ypwee][trace] state=ST_RELAY\n") }
