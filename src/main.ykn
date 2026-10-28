@@ -250,9 +250,7 @@ public class Proxy {
                 return
             }
             this.c_idletick.set_i64(ci, this.tick)
-            set prev: string = this.c_acc[ci]
-            rewrite prev = prev + chunk
-            rewrite this.c_acc[ci] = prev
+            rewrite this.c_acc[ci] = chunk
         } catch {
             print("[ypwee][trace] socks_read EXC (peer closed?)\n")
             this.drop_client(ci)
@@ -384,9 +382,7 @@ public class Proxy {
                 return
             }
             this.c_idletick.set_i64(ci, this.tick)
-            set prev: string = this.c_acc[ci]
-            rewrite prev = prev + chunk
-            rewrite this.c_acc[ci] = prev
+            rewrite this.c_acc[ci] = chunk
         } catch {
             this.drop_client(ci)
             return
