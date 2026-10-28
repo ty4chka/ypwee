@@ -249,7 +249,8 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        set st: int64 = this.c_state[ci]
+        set st: int64 = 9
+        rewrite st = this.c_state[ci]
         print("[ypwee][trace] raw read done\n")
         if st == 1 { print("[ypwee][trace] state=1 VER\n") }
         if st == 6 { print("[ypwee][trace] state=6 HTTP\n") }
@@ -259,6 +260,10 @@ public class Proxy {
         if st == 10 { print("[ypwee][trace] state=ST_RELAY\n") }
         set acl = cast(this.c_acc[ci].len(), "int64")
         if acl == 3 { print("[ypwee][trace] acc len=3 ok\n") }
+        set kk: uint64 = this.c_key[ci]
+        if kk == 1001u64 { print("[ypwee][trace] c_key[ci]=1001 ok\n") }
+        set st0: int64 = this.c_state[0]
+        if st0 == 1 { print("[ypwee][trace] c_state[0]==1 ok\n") }
 
         // ── VER+NMETHODS
         if st == 1 {
