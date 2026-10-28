@@ -91,8 +91,7 @@ public class Proxy {
     }
 
     fun run() {
-        print("[ypwee][trace] run loop start\n")
-        rewrite this.sock_l = tcp_listen(this.cfg.socks5_addr)
+                rewrite this.sock_l = tcp_listen(this.cfg.socks5_addr)
         this.sock_l?.set_nonblocking(true)
         set l1 = this.sock_l ?? tcp_listen(this.cfg.socks5_addr)
         this.poller.add_listener(ref l1, POLL_READABLE, KEY_SOCKS_L)
@@ -105,8 +104,7 @@ public class Proxy {
         while true {
             set events = this.poller.wait(1000)
             rewrite this.tick += 1
-            if this.tick < 4 { print("[ypwee][trace] tick=" + i64_to_string(this.tick) + " events=" + i64_to_string(cast(events.len(), "int64")) + "\n") }
-            for i in 0..events.len() {
+                        for i in 0..events.len() {
                 set ev = events[i]
                 if ev.key == KEY_SOCKS_L && ev.readable {
                         sus { this.accept_one(ref l1, true) } catch { space }
@@ -129,10 +127,8 @@ public class Proxy {
         rewrite this.sec_count += 1
         if this.sec_count > this.cfg.rate_per_sec { return }
         if this.c_id.len() >= this.cfg.max_conns { return }
-        print("[ypwee][trace] accept_one enter\n")
-        set c = listener.accept()
-        print("[ypwee][trace] accepted\n")
-        c.set_nonblocking(true)
+                set c = listener.accept()
+                c.set_nonblocking(true)
         rewrite this.next_key += 1
         this.poller.add_stream(ref c, POLL_READABLE, cast(this.next_key, "uint64"))
         this.push_client(this.next_key, cast(c.id, "int64"), is_socks)
@@ -447,20 +443,14 @@ public class Proxy {
 
     fun send_client(ci: int64, data: bytes) {
         set idopt = this.c_id.get_i64(ci)
-        if idopt == null {
-            print("[ypwee][trace] send_client: NO id for ci\n")
-            return
-        }
-        print("[ypwee][trace] send_client write\n")
-        sus {
+
+                sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            set wn = cs.write_bytes(data.as_ptr(), cast(data.len(), "int64"))
-            print("[ypwee][trace] wrote=" + i64_to_string(wn) + "\n")
+            cs.write_bytes(data.as_ptr(), cast(data.len(), "int64"))
+
             cs.flush()
-            print("[ypwee][trace] flushed\n")
-        } catch {
-            print("[ypwee][trace] send_client EXC\n")
-            space
+                    } catch {
+                        space
         }
     }
 
