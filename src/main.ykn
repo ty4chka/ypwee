@@ -291,7 +291,7 @@ public class Proxy {
             set plen = cast(b[1 + ulen], "int64")
             if n < 2 + ulen + plen { return }
             print("[ypwee][trace] ulen=" + i64_to_string(ulen) + " plen=" + i64_to_string(plen) + "\n")
-            set up = store_check_lenprobe(acc, ulen, plen)
+            set up = store_check_lenprobe(ulen, plen)
             set ok = up
             this.send_client(ci, userpass_reply(ok))
             if !ok {
