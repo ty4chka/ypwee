@@ -67,7 +67,7 @@ public class Aes256Ctr {
     counter_pos: int64
     keystream: uint8[]
 
-    fun init(ref key32: bytes, ref counter16: bytes) {
+    fun init(key32: bytes, counter16: bytes) {
         rewrite this.counter_pos = 16
         set nn: uint8[] = []
         set k: int64 = 0
@@ -163,7 +163,7 @@ public class Aes256Ctr {
 
     src_data: bytes = cast("", "bytes")
 
-    fun apply(ref data: bytes) -> bytes {
+    fun apply(data: bytes) -> bytes {
         rewrite this.src_data = data
         set out: bytes = cast("", "bytes")
         set i: int64 = 0
