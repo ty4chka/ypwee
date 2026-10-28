@@ -1,0 +1,23 @@
+# ypwee config — key=value (top-level only)
+
+mode = socks5
+
+# где слушать (по умолчанию localhost — менять только осознанно)
+socks5 = 127.0.0.1:1080
+http = 127.0.0.1:8081
+
+# SOCKS5 auth (RFC 1929)..sock = "user:pass" — повторяемая строка
+user = alice:changeMe1
+
+# target ACL: список допущенных хостов; "*" = всё; приватные и loopback всё равно запрещены
+# allow = *.example.com
+allow = *
+
+# SSRF: разрешить ли приватные/loopback целевые адреса (только если ОЧЕНЬ понимаешь зачем)
+allow-private = false
+
+# лимиты
+max-conns = 1024
+handshake-timeout-ms = 30000
+idle-timeout-ms = 300000
+new-conns-per-sec = 50
