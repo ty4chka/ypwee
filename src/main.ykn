@@ -398,7 +398,7 @@ public class Proxy {
             acc_c.push(bv[j])
             rewrite j += 1
         }
-        rewrite this.c_acc.set(i64_to_string(ci), cast(acc_c, "string"))
+        this.c_acc.set(i64_to_string(ci), cast(acc_c, "string"))
         this.rearm(ci)
         // ищем конец заголовков
         set end = -1
