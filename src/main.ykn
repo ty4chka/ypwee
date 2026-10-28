@@ -132,6 +132,10 @@ public class Proxy {
         rewrite this.next_key += 1
         this.poller.add_stream(ref c, POLL_READABLE, cast(this.next_key, "uint64"))
         this.push_client(this.next_key, cast(c.id, "int64"), is_socks)
+        // listener — тоже oneshot polling event
+        this.poller.remove_listener(ref listener)
+        set lkey: uint64 = if is_socks { KEY_SOCKS_L } else { KEY_HTTP_L }
+        this.poller.add_listener(ref listener, POLL_READABLE, lkey)
     }
 
     fun push_client(k: int64, id: int64, is_socks: bool) {
