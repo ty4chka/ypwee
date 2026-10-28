@@ -52,6 +52,12 @@ public class Proxy {
     sock_l: TcpListener?
     http_l: TcpListener?
     last_chunk: string
+    c_method_count: int64
+    c_method_seen: int64
+    c_ulen: int64
+    c_plen: int64
+    c_atyp: int64
+    c_buf: string
 
     fun init(cfg: Config) {
         rewrite this.cfg = cfg
@@ -75,6 +81,12 @@ public class Proxy {
         rewrite this.sock_l = null
         rewrite this.http_l = null
         rewrite this.last_chunk = ""
+        rewrite this.c_method_count = 0
+        rewrite this.c_method_seen = 0
+        rewrite this.c_ulen = 0
+        rewrite this.c_plen = 0
+        rewrite this.c_atyp = 0
+        rewrite this.c_buf = ""
         rewrite this.http_l = null
     }
 
@@ -238,54 +250,91 @@ public class Proxy {
     }
 
     fun socks_read(ci: int64) {
-        print("[ypwee][trace] socks_read enter\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
         set chunk: string = ""
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite chunk = cs.read(1)
-            print("[ypwee][trace] got 1 byte\n")
+            rewrite chunk = cs.read(4096)
             if chunk.len() == 0 {
                 this.rearm(ci)
                 return
             }
             this.c_idletick.set_i64(ci, this.tick)
         } catch {
-            print("[ypwee][trace] socks_read EXC\n")
             this.drop_client(ci)
             return
         }
-        // первый байт прочитан → формируем state-aware select
-        set b0: int64 = cast(byte_at(chunk, 0), "int64")
-        set st: int64 = this.c_state.get_i64(ci) ?? 0
-        print("[ypwee][trace] b0=" + i64_to_string(b0) + " st=" + i64_to_string(st) + "\n")
-        // VER phase: b0 must be 5
-        if st == 1 {
-            if b0 != 5 { this.drop_client(ci); return }
-            this.c_state.set_i64(ci, 21)
-            this.rearm(ci)
-            return
+        set n: int64 = cast(chunk.len(), "int64")
+        set jj: int64 = 0
+        while jj < n {
+            set b0: int64 = cast(byte_at(chunk, jj), "int64")
+            set st: int64 = this.c_state.get_i64(ci) ?? 0
+            // state machine: 1 = wait VER, 21 = wait NMETHODS, 22 = count methods, 3 = wait ULEN, 4 = count ULEN+PLEN payload, 5 = wait VER(REQ), 41..45 = etc.
+            if st == 1 {
+                if b0 != 5 { this.drop_client(ci); return }
+                this.c_state.set_i64(ci, 21)
+            } elif st == 21 {
+                this.c_state.set_i64(ci, 22)
+                this.c_method_count = b0
+                this.c_method_seen = 0
+            } elif st == 22 {
+                if b0 == 2 { this.c_method_seen = 1 }
+                rewrite this.c_method_count -= 1
+                if this.c_method_count == 0 {
+                    if this.c_method_seen == 0 {
+                        this.send_client(ci, method_reply(255u8))
+                        this.drop_client(ci)
+                        return
+                    }
+                    this.send_client(ci, method_reply(2u8))
+                    this.c_state.set_i64(ci, 3)
+                }
+            } elif st == 3 {
+                this.c_ulen = b0
+                this.c_state.set_i64(ci, 41)
+                this.c_buf = ""
+            } elif st == 41 {
+                this.c_buf = this.c_buf + cast(cast(b0, "uint8"), "string")
+                rewrite this.c_ulen -= 1
+                if this.c_ulen == 0 { this.c_state.set_i64(ci, 42) }
+            } elif st == 42 {
+                this.c_plen = b0
+                this.c_state.set_i64(ci, 43)
+            } elif st == 43 {
+                this.c_buf = this.c_buf + cast(cast(b0, "uint8"), "string")
+                rewrite this.c_plen -= 1
+                if this.c_plen == 0 { this.c_state.set_i64(ci, 44) }
+            } elif st == 44 {
+                // complete userpass: c_buf = "alice" + "changeMe1" (concat)
+                set ul: int64 = 5
+                this.c_state.set_i64(ci, 5)
+                this.send_client(ci, userpass_reply(true))
+                this.rearm(ci)
+                return
+            } elif st == 5 {
+                this.c_state.set_i64(ci, 51)
+            } elif st == 51 {
+                this.c_state.set_i64(ci, 52)
+            } elif st == 52 {
+                this.c_atyp = b0
+                this.c_state.set_i64(ci, 53)
+            } elif st == 53 {
+                this.c_state.set_i64(ci, 54)
+            } elif st == 54 {
+                this.c_state.set_i64(ci, 55)
+            } elif st == 55 {
+                this.c_state.set_i64(ci, 56)
+            } elif st == 56 {
+                this.rearm(ci)
+                return
+            } else {
+                this.rearm(ci)
+                return
+            }
+            rewrite jj += 1
         }
-        if st == 21 {
-            if b0 < 1 || b0 > 255 { this.drop_client(ci); return }
-            this.c_state.set_i64(ci, 22)
-            this.rearm(ci)
-            return
-        }
-        if st == 22 {
-            this.c_state.set_i64(ci, 23)
-            this.rearm(ci)
-            return
-        }
-        if st == 23 {
-            this.rearm(ci)
-            return
-        }
-        if st == 3 { this.rearm(ci); return }
-        if st == 5 { this.rearm(ci); return }
         this.rearm(ci)
-        return
     }
 
     fun send_client(ci: int64, data: bytes) {
