@@ -526,23 +526,22 @@ fun main() {
 }
 
 public fun store_check(users: string[], acc: string, ulen: int64, plen: int64) -> bool {
-    // acc = [1][ULEN U...][PLEN P...]; build "U:P" via bytes index copy into fresh bytes
     set b: bytes = cast(acc, "bytes")
-    set u: bytes = cast("", "bytes")
+    set ub: bytes = cast("", "bytes")
     set j: int64 = 0
     while j < ulen {
-        u.push(b[1 + j])
+        ub.push(b[1 + j])
         rewrite j += 1
     }
-    set p: bytes = cast("", "bytes")
+    set pb: bytes = cast("", "bytes")
     set j2: int64 = 0
     while j2 < plen {
-        p.push(b[2 + ulen + j2])
+        pb.push(b[2 + ulen + j2])
         rewrite j2 += 1
     }
-    set us: string = cast(u, "string")
-    set ps: string = cast(p, "string")
-    set full = us + ":" + ps
+    set us: string = cast(ub, "string")
+    set ps: string = cast(pb, "string")
+    set full: string = us + ":" + ps
     for k in 0..users.len() {
         if users[k] == full { return true }
     }
