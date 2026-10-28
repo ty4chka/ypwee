@@ -252,8 +252,12 @@ public class Proxy {
             return
         }
         set st: uint64 = this.c_state[ci]
-        print("[ypwee][trace] raw state low byte check\n")
+        print("[ypwee][trace] raw read done\n")
         if st == 1u64 { print("[ypwee][trace] state=1 VER\n") }
+        if st == 6u64 { print("[ypwee][trace] state=6 HTTP\n") }
+        if st == 0u64 { print("[ypwee][trace] state=0 ZERO\n") }
+        set stv: int64 = cast(st, "int64")
+        if stv > 0 && stv < 100 { print("[ypwee][trace] state small ok 1..99\n") }
         if st == HS_SOCKS_USERPASS_LEN { print("[ypwee][trace] state=HS_SOCKS_USERPASS_LEN\n") }
         if st == HS_SOCKS_REQ { print("[ypwee][trace] state=HS_SOCKS_REQ\n") }
         if st == ST_RELAY_C { print("[ypwee][trace] state=ST_RELAY\n") }
