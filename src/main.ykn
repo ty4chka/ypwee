@@ -241,7 +241,9 @@ public class Proxy {
                 return
             }
             rewrite this.c_idletick[ci] = this.tick
-            push_bytes_string(ref ~this.c_acc[ci], chunk)
+            set cur: bytes = this.c_acc[ci]
+            push_bytes_string(ref ~cur, chunk)
+            rewrite this.c_acc[ci] = cur
         } catch {
             print("[ypwee][trace] socks_read EXC\n")
             this.drop_client(ci)
@@ -372,7 +374,9 @@ public class Proxy {
                 return
             }
             rewrite this.c_idletick[ci] = this.tick
-            push_bytes_string(ref ~this.c_acc[ci], chunk)
+            set cur: bytes = this.c_acc[ci]
+            push_bytes_string(ref ~cur, chunk)
+            rewrite this.c_acc[ci] = cur
         } catch {
             this.drop_client(ci)
             return
