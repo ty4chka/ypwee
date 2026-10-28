@@ -64,12 +64,20 @@ public fun mtproto_parse_handshake_verify(handshake: string, secret: bytes) -> i
         prefix.push(byte_at(handshake, i))
         rewrite i += 1
     }
-    set hmac_ctx = hmac_sha256_init(ref secret)
+    set local_sec: bytes = cast("", "bytes")
+    set kp: int64 = 0
+    while kp < secret.len() {
+        local_sec.push(byte_at(secret, kp))
+        rewrite kp += 1
+    }
+    set hmac_ctx = hmac_sha256_init(ref local_sec)
     hmac_ctx.update(prefix)
     set mac: bytes = hmac_ctx.finish()
+    set mac_s: string = cast(mac, "string")
+    set hs_s: string = handshake
     set k: int64 = 0
     while k < 16 {
-        if byte_at(handshake, 48 + k) != byte_at(mac, 16 + k) {
+        if byte_at(hs_s, 48 + k) != byte_at(mac_s, 16 + k) {
             return -1
         }
         rewrite k += 1
@@ -85,7 +93,13 @@ public fun mtproto_server_proof(handshake: string, secret: bytes) -> bytes {
         prefix.push(byte_at(handshake, i))
         rewrite i += 1
     }
-    set hmac_ctx = hmac_sha256_init(ref secret)
+    set local_sec: bytes = cast("", "bytes")
+    set kp2: int64 = 0
+    while kp2 < secret.len() {
+        local_sec.push(byte_at(secret, kp2))
+        rewrite kp2 += 1
+    }
+    set hmac_ctx = hmac_sha256_init(ref local_sec)
     hmac_ctx.update(prefix)
     return hmac_ctx.finish()
 }
