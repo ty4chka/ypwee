@@ -51,6 +51,7 @@ public class Proxy {
     u_ci: HashMap<int64, int64>       // upstream key -> ci
     sock_l: TcpListener?
     http_l: TcpListener?
+    last_chunk: string
 
     fun init(cfg: Config) {
         rewrite this.cfg = cfg
@@ -72,6 +73,8 @@ public class Proxy {
         rewrite this.u_id = init HashMap<int64, int64>()
         rewrite this.u_ci = init HashMap<int64, int64>()
         rewrite this.sock_l = null
+        rewrite this.http_l = null
+        rewrite this.last_chunk = ""
         rewrite this.http_l = null
     }
 
@@ -237,12 +240,12 @@ public class Proxy {
         print("[ypwee][trace] socks_read enter\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
-        set chunk: string = ""
+        rewrite this.last_chunk = ""
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite chunk = cs.read(4096)
+            rewrite this.last_chunk = cs.read(4096)
             print("[ypwee][trace] read len=" + i64_to_string(cast(chunk.len(), "int64")) + "\n")
-            if chunk.len() == 0 {
+            if this.last_chunk.len() == 0 {
                 this.rearm(ci)
                 return
             }
@@ -253,6 +256,7 @@ public class Proxy {
             return
         }
         set st: int64 = this.c_state.get_i64(ci) ?? 0
+        set chunk: string = this.last_chunk
         set n: int64 = cast(chunk.len(), "int64")
         print("[ypwee][trace] post-read n=" + i64_to_string(n) + " st=" + i64_to_string(st) + "\n")
 
@@ -540,7 +544,7 @@ public class Proxy {
         sus {
             set us = init TcpStream(cast(usopt ?? 0, "uint64"))
             set chunk = us.read(65536)
-            if chunk.len() == 0 {
+            if this.last_chunk.len() == 0 {
                 this.rearm(ci)
                 return
             }
