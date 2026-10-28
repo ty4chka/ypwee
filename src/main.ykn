@@ -241,9 +241,10 @@ public class Proxy {
         print("[ypwee][trace] socks_read enter\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
+        set chunk: string = ""
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            set chunk = cs.read(4096)
+            rewrite chunk = cs.read(4096)
             print("[ypwee][trace] read chunk len=" + i64_to_string(cast(chunk.len(), "int64")) + "\n")
             if chunk.len() == 0 {
                 this.rearm(ci)
@@ -371,9 +372,10 @@ public class Proxy {
     fun http_read(ci: int64) {
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
+        set chunk: string = ""
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            set chunk = cs.read(4096)
+            rewrite chunk = cs.read(4096)
             if chunk.len() == 0 {
                 this.rearm(ci)
                 return
