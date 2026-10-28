@@ -50,7 +50,6 @@ public class Config {
         if key == "mode" { rewrite this.mode = val }
         if key == "socks5" { rewrite this.socks5_addr = val }
         if key == "http" { rewrite this.http_addr = val }
-        print("[ypwee] apply key=[" + key + "] val=[" + val + "]\n")
         if key == "user" { this.users.push(val) }
         if key == "allow" { this.allow_targets.push(val) }
         if key == "allow-private" { rewrite this.allow_private_targets = (val == "true") }

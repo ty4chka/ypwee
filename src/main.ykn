@@ -61,7 +61,7 @@ public class Proxy {
 
     fun init(cfg: Config) {
         rewrite this.cfg = cfg
-        rewrite this.store = init UserStore(["alice:changeMe1"])
+        rewrite this.store = init UserStore(cfg.users.cp())
         rewrite this.poller = init SocketPoller()
         rewrite this.next_key = 1000
         rewrite this.tick = 0
@@ -351,12 +351,6 @@ public class Proxy {
             set upass: string = str_slice(rest, p_start, total)
             set okc: bool = false
             eprint("[ypwee] auth uname=[" + uname + "] passlen=" + i64_to_string(cast(upass.len(), "int64")) + "\n")
-                eprint("[ypwee] full=[" + uname + ":" + upass + "]\n")
-                set ul0: int64 = 0
-                while ul0 < this.cfg.users.len() {
-                    eprint("[ypwee] cfguser=[" + this.cfg.users[ul0] + "]\n")
-                    rewrite ul0 += 1
-                }
                 set okc: bool = false
                 set want_u: string = "alice"
                 set want_p: string = "changeMe1"
@@ -685,17 +679,6 @@ fun main() {
         rt::exit(1)
     }
     print("[ypwee] mode=" + cfg.mode + " users=" + i64_to_string(cast(cfg.users.len(), "int64")) + "\n")
-    print("[ypwee] cfg_dumpallow_len=" + i64_to_string(cast(cfg.allow_targets.len(), "int64")) + "\n")
-    set ua: int64 = 0
-    while ua < cfg.allow_targets.len() {
-        print("[ypwee] cfgallow=[" + cfg.allow_targets[ua] + "]\n")
-        rewrite ua += 1
-    }
-    set uu: int64 = 0
-    while uu < cfg.users.len() {
-        print("[ypwee] cfguser=[" + cfg.users[uu] + "]\n")
-        rewrite uu += 1
-    }
     set p = init Proxy(cfg)
     p.run()
 }
