@@ -257,7 +257,8 @@ public class Proxy {
         print("[ypwee][trace] post-read 2 st=" + i64_to_string(st) + "\n")
         set n: int64 = got
         print("[ypwee][trace] post-read 3 n=" + i64_to_string(n) + "\n")
-        set bv: uint8[] = cast(buf, "uint8[]")
+        set bv: bytes = buf[0..n]
+        print("[ypwee][trace] slice view done\n")
         print("[ypwee][trace] slice ok\n")
 
         // ── VER+NMETHODS
