@@ -303,7 +303,6 @@ public class Proxy {
                 this.drop_client(ci)
                 return
             }
-            rewrite this.c_user[ci] = u
             this.c_state.set_i64(ci, 5)
             this.rearm(ci)
             return
