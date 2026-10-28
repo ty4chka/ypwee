@@ -414,12 +414,21 @@ public class Proxy {
 
     fun send_client(ci: int64, data: bytes) {
         set idopt = this.c_id.get_i64(ci)
-        if idopt == null { return }
+        if idopt == null {
+            print("[ypwee][trace] send_client: NO id for ci\n")
+            return
+        }
+        print("[ypwee][trace] send_client write\n")
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            cs.write_bytes(data.as_ptr(), cast(data.len(), "int64"))
+            set wn = cs.write_bytes(data.as_ptr(), cast(data.len(), "int64"))
+            print("[ypwee][trace] wrote=" + i64_to_string(wn) + "\n")
             cs.flush()
-        } catch { space }
+            print("[ypwee][trace] flushed\n")
+        } catch {
+            print("[ypwee][trace] send_client EXC\n")
+            space
+        }
     }
 
     fun http_read(ci: int64) {
