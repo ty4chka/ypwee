@@ -291,7 +291,7 @@ public class Proxy {
             if n < 1 { return }
             set ulen = cast(bv[0], "int64")
             if n < 1 + ulen + 1 { return }
-            set plen = cast(buf[1 + ulen], "int64")
+            set plen = cast(bv[1 + ulen], "int64")
             if n < 2 + ulen + plen { return }
             print("[ypwee][trace] ulen=" + i64_to_string(ulen) + " plen=" + i64_to_string(plen) + "\n")
             set ok = store_check_lenprobe(ulen, plen)
