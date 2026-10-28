@@ -1,6 +1,6 @@
 // ypwee — config: key=value lines, ACL + SSRF guard (documented API only)
 load std.io: eprint
-load std.fs: read_text
+load std.fs: read_text, file_exists
 
 public class Config {
     mode: string
@@ -139,22 +139,22 @@ public fun is_private_target(host: string) -> bool {
 
 public fun load_config(path: string) -> Config {
     set cfg = init Config()
-    sus {
-        set text = read_text(path)
-        set i: int64 = 0
-        set s: int64 = 0
-        while i <= text.len() {
-            if i == text.len() || text[i] == 10u8 {
-                if i > s {
-                    set line: string = ypwee_trim2(text, s, i)
-                    cfg.apply(line)
-                }
-                rewrite s = i + 1
+    if !file_exists(path) {
+        eprint("[ypwee] config missing: " + path + "; using defaults\n")
+        return cfg
+    }
+    set text = read_text(path)
+    set i: int64 = 0
+    set s: int64 = 0
+    while i <= text.len() {
+        if i == text.len() || text[i] == 10u8 {
+            if i > s {
+                set line: string = ypwee_trim2(text, s, i)
+                cfg.apply(line)
             }
-            rewrite i += 1
+            rewrite s = i + 1
         }
-    } catch {
-        eprint("[ypwee] config missing or unreadable: using defaults; run with config path arg\n")
+        rewrite i += 1
     }
     return cfg
 }
