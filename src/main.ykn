@@ -472,7 +472,7 @@ public class Proxy {
             set secret_hex: string = this.cfg.mtproto_secret
             set sec_bytes: bytes = secret_to_bytes(secret_hex)
             set sec_bytes_c: bytes = sec_bytes.cp()
-            set dc_id: int64 = mtproto_parse_handshake_verify(chunk, sec_bytes)
+            set dc_id: int64 = mtproto_parse_handshake_verify(chunk, ref ~sec_bytes)
             if dc_id < 0 {
                 this.drop_client(ci)
                 return
