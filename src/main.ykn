@@ -43,7 +43,7 @@ public class Proxy {
     c_idletick: HashMap<int64, int64> // ci -> tick of last activity
     c_key_of: HashMap<int64, int64>   // poller key -> ci
     c_pollkey: HashMap<int64, int64>  // ci -> poller key
-    c_acc: string[]                  // ci -> accumulated text (append-only by ci)
+    c_acc: HashMap<string, string>    // ci(as str) -> accumulated data
     c_user: string[]                 // ci -> auth user (append-only)
     c_target: string[]               // ci -> target (append-only)
     // upstream flows
@@ -68,7 +68,7 @@ public class Proxy {
         rewrite this.c_idletick = init HashMap<int64, int64>()
         rewrite this.c_key_of = init HashMap<int64, int64>()
         rewrite this.c_pollkey = init HashMap<int64, int64>()
-        rewrite this.c_acc = []
+        rewrite this.c_acc = init HashMap<string, string>()
         rewrite this.c_user = []
         rewrite this.c_target = []
         rewrite this.u_id = init HashMap<int64, int64>()
@@ -140,7 +140,7 @@ public class Proxy {
         }
         this.c_upkey.set_i64(ci, 0)
         this.c_idletick.set_i64(ci, this.tick)
-        this.c_acc.push("")
+        this.c_acc.set(i64_to_string(ci), "")
         this.c_user.push("")
         this.c_target.push("")
 
