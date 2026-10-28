@@ -127,7 +127,7 @@ public class Proxy {
 
     fun push_client(k: int64, id: int64, is_socks: bool) {
         rewrite this.cis += 1
-        set ci = this.cis
+        set ci: int64 = this.cis
         this.c_key_of.set_i64(k, ci)
         this.c_pollkey.set_i64(ci, k)
         this.c_id.set_i64(ci, id)
@@ -187,7 +187,7 @@ public class Proxy {
 
     fun expire() {
         // обходим все выданные ci; удаляем только живые записи
-        set ci = this.cis
+        set ci: int64 = this.cis
         while ci >= 1 {
             set stopt = this.c_state.get_i64(ci)
             if stopt != null {
