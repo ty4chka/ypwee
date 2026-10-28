@@ -241,176 +241,51 @@ public class Proxy {
         print("[ypwee][trace] socks_read enter\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
-        rewrite this.last_chunk = ""
+        set chunk: string = ""
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite this.last_chunk = cs.read(4096)
-            print("[ypwee][trace] read len=" + i64_to_string(cast(this.last_chunk.len(), "int64")) + "\n")
-            if this.last_chunk.len() == 0 {
+            rewrite chunk = cs.read(1)
+            print("[ypwee][trace] got 1 byte\n")
+            if chunk.len() == 0 {
                 this.rearm(ci)
                 return
             }
             this.c_idletick.set_i64(ci, this.tick)
         } catch {
-            print("[ypwee][trace] socks_read EXC (peer closed?)\n")
+            print("[ypwee][trace] socks_read EXC\n")
             this.drop_client(ci)
             return
         }
+        // первый байт прочитан → формируем state-aware select
+        set b0: int64 = cast(byte_at(chunk, 0), "int64")
         set st: int64 = this.c_state.get_i64(ci) ?? 0
-        set chunk: string = this.last_chunk
-        set n: int64 = cast(chunk.len(), "int64")
-        print("[ypwee][trace] post-read n=" + i64_to_string(n) + " st=" + i64_to_string(st) + "\n")
-
-        // ── VER+NMETHODS
+        print("[ypwee][trace] b0=" + i64_to_string(b0) + " st=" + i64_to_string(st) + "\n")
+        // VER phase: b0 must be 5
         if st == 1 {
-            if n < 2 { 
-                this.rearm(ci)
-                return 
-            }
-            if byte_at(chunk, 0) != 5u8 { this.drop_client(ci); return }
-            set nm = cast(byte_at(chunk, 1), "int64")
-            if nm < 1 || nm > 255 { this.drop_client(ci); return }
-            if n < 2 + nm { 
-                this.rearm(ci)
-                return 
-            }
-            set has_up = false
-            for i in 2..2 + nm {
-                if byte_at(chunk, i) == 2u8 { rewrite has_up = true }
-            }
-            if !has_up {
-                this.send_client(ci, method_reply(255u8))
-                this.drop_client(ci)
-                return
-            }
-            print("[ypwee][trace] send method_reply(2)\n")
-            this.send_client(ci, method_reply(2u8))
-            this.c_state.set_i64(ci, 3)
+            if b0 != 5 { this.drop_client(ci); return }
+            this.c_state.set_i64(ci, 21)
             this.rearm(ci)
             return
         }
-
-        // ── USERPASS
-        if st == 3 {
-            print("[ypwee][trace] USERPASS enter n=" + i64_to_string(n) + "\n")
-            if n < 1 { return }
-            set ulen = cast(byte_at(chunk, 0), "int64")
-            print("[ypwee][trace] ulen=" + i64_to_string(ulen) + "\n")
-            if n < 1 + ulen + 1 { 
-                this.rearm(ci)
-                return 
-            }
-            set plen_idx: int64 = 1 + ulen
-            set plen = cast(byte_at(chunk, plen_idx), "int64")
-            if n < 2 + ulen + plen { 
-                this.rearm(ci)
-                return 
-            }
-            print("[ypwee][trace] plen=" + i64_to_string(plen) + "\n")
-            set ub: bytes = cast("", "bytes")
-            set jj: int64 = 1
-            while jj < 1 + ulen {
-                ub.push(byte_at(chunk, jj))
-                rewrite jj += 1
-            }
-            set pb: bytes = cast("", "bytes")
-            rewrite jj = 2 + ulen
-            while jj < 2 + ulen + plen {
-                pb.push(byte_at(chunk, jj))
-                rewrite jj += 1
-            }
-            set u: string = cast(ub, "string")
-            set p: string = cast(pb, "string")
-            print("[ypwee][trace] checking u_len=" + i64_to_string(cast(u.len(), "int64")) + "\n")
-            set full: string = u + ":" + p
-            set ok = false
-            for k in 0..this.cfg.users.len() {
-                if this.cfg.users[k] == full { rewrite ok = true }
-            }
-            print("[ypwee][trace] auth ok=" + i64_to_string(cast(ok, "int64")) + "\n")
-            this.send_client(ci, userpass_reply(ok))
-            if !ok {
-                this.drop_client(ci)
-                return
-            }
-            this.c_state.set_i64(ci, 5)
+        if st == 21 {
+            if b0 < 1 || b0 > 255 { this.drop_client(ci); return }
+            this.c_state.set_i64(ci, 22)
             this.rearm(ci)
             return
         }
-
-        // ── REQUEST
-        if st == 5 {
-            print("[ypwee][trace] REQUEST enter n=" + i64_to_string(n) + "\n")
-            if n < 5 { return }
-            set atyp = cast(byte_at(chunk, 3), "int64")
-            set need = 0
-            set host: string = ""
-            if atyp == 1 {
-                rewrite need = 10
-                if n < 10 { 
-                    this.rearm(ci)
-                    return 
-                }
-                set o4: int64 = 4
-                set o5: int64 = 5
-                set o6: int64 = 6
-                set o7: int64 = 7
-                rewrite host = i64_to_string(cast(byte_at(chunk, o4), "int64")) + "." +
-                    i64_to_string(cast(byte_at(chunk, o5), "int64")) + "." +
-                    i64_to_string(cast(byte_at(chunk, o6), "int64")) + "." +
-                    i64_to_string(cast(byte_at(chunk, o7), "int64"))
-            }
-            if atyp == 3 {
-                set d_idx: int64 = 4
-                set dlen = cast(byte_at(chunk, d_idx), "int64")
-                rewrite need = 7 + dlen
-                if n < 5 + dlen + 2 { 
-                    this.rearm(ci)
-                    return 
-                }
-                set hb: bytes = cast("", "bytes")
-                set hz: int64 = 5
-                while hz < 5 + dlen {
-                    hb.push(byte_at(chunk, hz))
-                    rewrite hz += 1
-                }
-                rewrite host = cast(hb, "string")
-            }
-            if atyp == 4 {
-                rewrite need = 22
-                if n < 22 { 
-                    this.rearm(ci)
-                    return 
-                }
-                rewrite host = "v6-placeholder"
-            }
-            set p_hi: int64 = need - 2
-            set p_lo: int64 = need - 1
-            set port = cast(byte_at(chunk, p_hi), "int64") * 256 + cast(byte_at(chunk, p_lo), "int64")
-            set cmd = cast(byte_at(chunk, 1), "int64")
-            print("[ypwee][trace] host=" + host + " port=" + i64_to_string(port) + "\n")
-            if cmd != 1 {
-                this.send_client(ci, socks5_reply(REP_NOT_SUPP))
-                this.drop_client(ci)
-                return
-            }
-            if !this.cfg.target_allowed(host) {
-                this.send_client(ci, socks5_reply(REP_RULES))
-                this.drop_client(ci)
-                return
-            }
-            set target = host + ":" + i64_to_string(port)
-            sus {
-                set up = tcp_connect(target, this.cfg.hs_timeout_s * 1000)
-                up.set_nonblocking(true)
-                this.send_client(ci, socks5_reply(REP_OK))
-                this.start_relay(ci, up)
-            } catch {
-                this.send_client(ci, socks5_reply(REP_HOST_UNREACH))
-                this.drop_client(ci)
-            }
+        if st == 22 {
+            this.c_state.set_i64(ci, 23)
+            this.rearm(ci)
             return
         }
+        if st == 23 {
+            this.rearm(ci)
+            return
+        }
+        if st == 3 { this.rearm(ci); return }
+        if st == 5 { this.rearm(ci); return }
+        this.rearm(ci)
+        return
     }
 
     fun send_client(ci: int64, data: bytes) {
