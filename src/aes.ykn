@@ -169,7 +169,7 @@ public class Aes256Ctr {
         set i: int64 = 0
         while i < data.len() {
             if this.counter_pos >= 16 { this.next_keystream() }
-            set db: uint8 = byte_at(bytes_str(this.src_data), i)
+            set db: uint8 = byte_at(cast(this.src_data, "string"), i)
             set ksb: uint8 = this.keystream[this.counter_pos]
             out.push(db ^ ksb)
             rewrite this.counter_pos += 1
