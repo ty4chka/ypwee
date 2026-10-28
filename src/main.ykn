@@ -543,8 +543,8 @@ public class Proxy {
         }
         sus {
             set us = init TcpStream(cast(usopt ?? 0, "uint64"))
-            set chunk = us.read(65536)
-            if this.last_chunk.len() == 0 {
+            set chunk: string = us.read(65536)
+            if chunk.len() == 0 {
                 this.rearm(ci)
                 return
             }
