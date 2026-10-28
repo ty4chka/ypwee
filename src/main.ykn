@@ -289,6 +289,7 @@ public class Proxy {
 
         // ── USERPASS
         if st == 3 {
+            print("[ypwee][trace] USERPASS branch enter\n")
             if n < 1 { return }
             set b: bytes = cast(acc, "bytes")
             set ulen = cast(b[0], "int64")
