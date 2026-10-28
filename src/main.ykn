@@ -239,7 +239,7 @@ public class Proxy {
             this.c_idletick.set_i64(ci, this.tick)
             set prev: string = this.c_acc[ci]
             rewrite prev = prev + chunk
-            this.c_acc[ci] = prev
+            rewrite this.c_acc[ci] = prev
         } catch {
             print("[ypwee][trace] socks_read EXC\n")
             this.drop_client(ci)
@@ -268,7 +268,7 @@ public class Proxy {
             }
             print("[ypwee][trace] send method_reply(2)\n")
             this.send_client(ci, method_reply(2u8))
-            this.c_acc[ci] = ""
+            rewrite this.c_acc[ci] = ""
             this.c_state.set_i64(ci, 3)
             return
         }
@@ -285,12 +285,12 @@ public class Proxy {
             set p: string = string::from_raw_parts(cast(cast(b.as_ptr(), "int64") + 2 + ulen, "ptr<uint8>"), plen)
             set ok = this.store.check(u, p)
             this.send_client(ci, userpass_reply(ok))
-            this.c_acc[ci] = ""
+            rewrite this.c_acc[ci] = ""
             if !ok {
                 this.drop_client(ci)
                 return
             }
-            this.c_user[ci] = u
+            rewrite this.c_user[ci] = u
             this.c_state.set_i64(ci, 5)
             return
         }
@@ -338,7 +338,7 @@ public class Proxy {
                 set up = tcp_connect(target, this.cfg.hs_timeout_s * 1000)
                 up.set_nonblocking(true)
                 this.send_client(ci, socks5_reply(REP_OK))
-                this.c_target[ci] = target
+                rewrite this.c_target[ci] = target
                 this.start_relay(ci, up)
             } catch {
                 this.send_client(ci, socks5_reply(REP_HOST_UNREACH))
@@ -371,7 +371,7 @@ public class Proxy {
             this.c_idletick.set_i64(ci, this.tick)
             set prev: string = this.c_acc[ci]
             rewrite prev = prev + chunk
-            this.c_acc[ci] = prev
+            rewrite this.c_acc[ci] = prev
         } catch {
             this.drop_client(ci)
             return
