@@ -1,0 +1,150 @@
+// ypwee — MTProto obfuscated2 + FakeTLS helper (M2+M3)
+// Референс: mtg, mtproto.zig. Схема FakeTLS обёртка вокруг obfuscated2 stream.
+
+load std.crypto: hkdf_extract, hkdf_expand, hmac_sha256
+load std.crypto.hmac: hmac_sha256_init
+load std.strings: byte_at, slice as str_slice
+
+public class ObfConfig {
+    secret: bytes
+    dc_id: int64
+
+    fun init() {
+        rewrite this.secret = cast("", "bytes")
+        rewrite this.dc_id = 2
+    }
+}
+
+public fun secret_to_bytes(secret_hex: string) -> bytes {
+    set out: bytes = cast("", "bytes")
+    set i: int64 = 0
+    while i + 1 < secret_hex.len() {
+        set h: int64 = hex_val(byte_at(secret_hex, i))
+        set l: int64 = hex_val(byte_at(secret_hex, i + 1))
+        out.push(cast(h * 16 + l, "uint8"))
+        rewrite i += 2
+    }
+    return out
+}
+
+public fun hex_val(c: uint8) -> int64 {
+    if c >= 48u8 && c <= 57u8 { return cast(c - 48u8, "int64") }
+    if c >= 97u8 && c <= 102u8 { return cast(c - 97u8, "int64") + 10 }
+    if c >= 65u8 && c <= 70u8 { return cast(c - 65u8, "int64") + 10 }
+    return 0
+}
+
+// MTProto FakeTLS handshake parse. Returns DC target or "" if invalid.
+// handshake bytes[0..64]:
+//   [0..56]  any (обфускация+TAG)
+//   [56..60] dc_id (BE, bit 0x8000 = prefer IPv6)
+//   [48..56] HMAC-SHA256(secret, bytes[0..56])[-16..] — auth tag для FakeTLS
+public fun mtproto_parse_handshake(handshake: bytes, secret: bytes) -> string {
+    if handshake.len() < 64 { return "" }
+    set dc_b0: int64 = cast(byte_at(handshake, 56), "int64")
+    set dc_b1: int64 = cast(byte_at(handshake, 57), "int64")
+    set dc_id: int64 = 0
+    if dc_b0 >= 128 { rewrite dc_id = (dc_b0 - 128) * 256 + dc_b1 } else {
+        rewrite dc_id = dc_b0 * 256 + dc_b1
+    }
+    if dc_id < 1 || dc_id > 5 {
+        eprint("[ypwee] mtproto: bad dc_id " + i64_to_string(dc_id) + "\n")
+        return ""
+    }
+    // FakeTLS HMAC verification
+    set prefix: bytes = cast("", "bytes")
+    set i: int64 = 0
+    while i < 56 {
+        prefix.push(byte_at(handshake, i))
+        rewrite i += 1
+    }
+    set hmac_ctx = hmac_sha256_init(ref secret)
+    hmac_ctx.update(prefix)
+    set mac: bytes = hmac_ctx.finish()
+    // last 16 bytes of mac = auth tag; handshake[48..56] должен совпасть
+    set k: int64 = 0
+    while k < 16 {
+        if byte_at(handshake, 48 + k) != byte_at(mac, k) {
+            eprint("[ypwee] faketls hmac mismatch\n")
+            return ""
+        }
+        rewrite k += 1
+    }
+    // DC addresses (Telegram IPv4)
+    if dc_id == 1 { return "149.154.175.53:443" }
+    if dc_id == 2 { return "149.154.167.51:443" }
+    if dc_id == 3 { return "149.154.175.100:443" }
+    if dc_id == 4 { return "149.154.167.91:443" }
+    if dc_id == 5 { return "91.108.56.130:443" }
+    return ""
+}
+
+// MTProto obfuscated2 keys derivation. Возвращает 96 байт: [send_key(32), send_iv(16), recv_key(32), recv_iv(16)]
+public fun mtproto_derive_keys(hs: bytes, secret: bytes) -> bytes {
+    set prefix: bytes = cast("", "bytes")
+    set i: int64 = 0
+    while i < 56 {
+        prefix.push(byte_at(hs, i))
+        rewrite i += 1
+    }
+    set salt: bytes = secret.cp()
+    set prk: bytes = hkdf_extract(ref salt, ref prefix)
+    set info: bytes = cast("obf2:send,recv", "bytes")
+    set okm: bytes = hkdf_expand(ref prk, ref info, 96)
+    return okm
+}
+
+// FakeTLS packet wrapper
+public class FakeTls {
+    seq: int64
+
+    fun init() {
+        rewrite this.seq = 0
+    }
+
+    fun wrap(payload: bytes) -> bytes {
+        set out: bytes = cast("", "bytes")
+        set k: int64 = 0
+        while k < 12 {
+            out.push(0u8)
+            rewrite k += 1
+        }
+        // 4 bytes seq BE
+        set sn: int64 = this.seq
+        out.push(cast((sn >> 24) & 0xFF, "uint8"))
+        out.push(cast((sn >> 16) & 0xFF, "uint8"))
+        out.push(cast((sn >> 8) & 0xFF, "uint8"))
+        out.push(cast(sn & 0xFF, "uint8"))
+        rewrite this.seq += 1
+        // 4 bytes payload length BE
+        set pl: int64 = payload.len()
+        out.push(cast((pl >> 24) & 0xFF, "uint8"))
+        out.push(cast((pl >> 16) & 0xFF, "uint8"))
+        out.push(cast((pl >> 8) & 0xFF, "uint8"))
+        out.push(cast(pl & 0xFF, "uint8"))
+        // payload
+        set k2: int64 = 0
+        while k2 < payload.len() {
+            out.push(byte_at(payload, k2))
+            rewrite k2 += 1
+        }
+        return out
+    }
+
+    // payload bytes; returns null if insufficient data
+    fun unwrap(buf: bytes) -> bytes? {
+        if buf.len() < 24 { return null }
+        set pl: int64 = cast(byte_at(buf, 20), "int64") * 16777216
+        pl = pl + cast(byte_at(buf, 21), "int64") * 65536
+        pl = pl + cast(byte_at(buf, 22), "int64") * 256
+        pl = pl + cast(byte_at(buf, 23), "int64")
+        if cast(buf.len(), "int64") < 24 + pl { return null }
+        set out: bytes = cast("", "bytes")
+        set i: int64 = 24
+        while i < 24 + pl {
+            out.push(byte_at(buf, i))
+            rewrite i += 1
+        }
+        return out
+    }
+}
