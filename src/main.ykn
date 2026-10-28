@@ -226,6 +226,17 @@ public class Proxy {
             this.http_read(ci)
         }
     }
+    fun rearm(ci: int64) {
+        set idopt = this.c_id.get_i64(ci)
+        if idopt == null { return }
+        set kopt = this.c_pollkey.get_i64(ci)
+        if kopt == null { return }
+        sus {
+            set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
+            this.poller.modify_stream(ref cs, POLL_READABLE, cast(kopt ?? 0, "uint64"))
+        } catch { space }
+    }
+
     fun socks_read(ci: int64) {
         print("[ypwee][trace] socks_read enter\n")
         set idopt = this.c_id.get_i64(ci)
@@ -272,6 +283,7 @@ public class Proxy {
             this.send_client(ci, method_reply(2u8))
             rewrite this.c_acc[ci] = ""
             this.c_state.set_i64(ci, 3)
+            this.rearm(ci)
             return
         }
 
@@ -294,6 +306,7 @@ public class Proxy {
             }
             rewrite this.c_user[ci] = u
             this.c_state.set_i64(ci, 5)
+            this.rearm(ci)
             return
         }
 
@@ -381,6 +394,7 @@ public class Proxy {
         set acc: string = this.c_acc[ci]
         set b: bytes = cast(acc, "bytes")
         set n: int64 = cast(b.len(), "int64")
+        this.rearm(ci)
         // ищем конец заголовков
         set end = -1
         set i: int64 = 0
