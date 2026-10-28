@@ -376,13 +376,12 @@ public class Proxy {
     fun http_read(ci: int64) {
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
-        set buf: bytes = cast("", "bytes")
+        set buf: uint8[] = []
         buf.reserve(16384)
         set got: int64 = 0
-        set buf_ptr: ptr<uint8> = buf.as_ptr()
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite got = cs.read_bytes(buf_ptr, 16384)
+            rewrite got = cs.read_bytes(cast(buf.as_ptr(), "ptr<uint8>"), 16384)
             if got <= 0 {
                 this.rearm(ci)
                 return
