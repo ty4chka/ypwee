@@ -427,6 +427,7 @@ public class Proxy {
                 rewrite connected = 0
             }
             if connected == 0 {
+                eprint("[ypwee] tcp_connect to " + target + " failed\n")
                 this.send_client(ci, socks5_reply(4u8))
                 this.drop_client(ci)
                 return -1
