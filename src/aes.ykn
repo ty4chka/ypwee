@@ -72,7 +72,7 @@ public class Aes256Ctr {
         set nn: uint8[] = []
         set k: int64 = 0
         while k < 16 {
-            nn.push(byte_at(counter16, k))
+            nn.push(byte_at(bytes_str(counter16), k))
             rewrite k += 1
         }
         rewrite this.nonce = nn
@@ -87,7 +87,7 @@ public class Aes256Ctr {
         set w: uint8[] = []
         set kc: int64 = 0
         while kc < 32 {
-            w.push(byte_at(key32, kc))
+            w.push(byte_at(bytes_str(key32), kc))
             rewrite kc += 1
         }
         set Nk: int64 = 8
@@ -166,7 +166,7 @@ public class Aes256Ctr {
         set i: int64 = 0
         while i < data.len() {
             if this.counter_pos >= 16 { this.next_keystream() }
-            set db: uint8 = byte_at(data, i)
+            set db: uint8 = byte_at(bytes_str(data), i)
             set ksb: uint8 = this.keystream[this.counter_pos]
             out.push(db ^ ksb)
             rewrite this.counter_pos += 1
@@ -262,4 +262,8 @@ public fun mix_columns(ref ~state: uint8[]) {
         rewrite state[base + 3] = v3
         rewrite col += 1
     }
+}
+
+public fun bytes_str(b: bytes) -> string {
+    return cast(b, "string")
 }
