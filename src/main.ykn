@@ -239,8 +239,8 @@ public class Proxy {
                 this.drop_client(ci)
                 return
             }
-            rewrite this.c_idletick.set(ci, this.tick)
-            set prev = this.c_acc.get(ci) ?? ""
+            this.c_idletick.set(ci, this.tick)
+            set prev: string = this.c_acc.get(ci) ?? ""
             set cb: string = chunk
             rewrite prev = prev + cb
             this.c_acc.set(ci, prev)
@@ -373,7 +373,7 @@ public class Proxy {
                 return
             }
             this.c_idletick.set(ci, this.tick)
-            set prev = this.c_acc.get(ci) ?? ""
+            set prev: string = this.c_acc.get(ci) ?? ""
             rewrite prev = prev + chunk
             this.c_acc.set(ci, prev)
         } catch {
