@@ -367,11 +367,12 @@ public class Proxy {
     fun http_read(ci: int64) {
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
-        set buf: uint8[16384]
+        set buf: bytes = cast("", "bytes")
+        buf.reserve(16384)
         set got: int64 = 0
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite got = cs.read_bytes(cast(buf, "ptr<uint8>"), 16384)
+            rewrite got = cs.read_bytes(buf.as_ptr(), 16384)
             if got <= 0 {
                 this.rearm(ci)
                 return
@@ -382,7 +383,8 @@ public class Proxy {
             return
         }
         set n: int64 = got
-        set b: bytes = string::from_raw_parts(cast(buf, "ptr<uint8>"), n)
+        set acc2: string = cast(buf, "string")
+        set b: bytes = cast(acc2, "bytes")
         this.rearm(ci)
         // ищем конец заголовков
         set end = -1
