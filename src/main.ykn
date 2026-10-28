@@ -1,6 +1,7 @@
 load std.net: SocketPoller, POLL_READABLE, tcp_listen, tcp_connect
 load std.collections.hashmap: HashMap
-load std.strings: byte_at, slice as str_slice
+load std.strings: byte_at
+load std.strings: slice as str_slice
 load std.io: print, eprint
 load .config: Config, load_config, is_private_target
 load .sniff: is_socks5_hello
