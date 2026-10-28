@@ -416,12 +416,15 @@ public class Proxy {
                 return -1
             }
             set target: string = host + ":" + i64_to_string(port)
+            eprint("[ypwee] CONNECT -> " + target + "\n")
             set connected: int64 = 0
             sus {
                 set up = tcp_connect(target, this.cfg.hs_timeout_s * 1000)
                 up.set_nonblocking(true)
                 this.send_client(ci, socks5_reply(0u8))
                 this.start_relay(ci, up)
+                this.rearm(ci)
+                eprint("[ypwee] relay started\n")
                 rewrite connected = 1
             } catch {
                 rewrite connected = 0
