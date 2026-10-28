@@ -40,10 +40,8 @@ fun test_acl_private_denied_by_default() {
 
 #[test]
 fun test_userstore_check() {
-    set c = init Config()
-    c.apply("user = alice:secret")
-    c.apply("user = bob:hunter2")
-    set s = init UserStore(c.users)
+    set arr: string[] = ["alice:secret", "bob:hunter2"]
+    set s = init UserStore(arr.cp())
     assert(s.check("alice", "secret"), "ok pair")
     assert(!s.check("alice", "wrong"), "wrong pass")
     assert(!s.check("eve", "x"), "unknown user")
