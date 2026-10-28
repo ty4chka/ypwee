@@ -315,7 +315,7 @@ public class Proxy {
             }
             set u: string = cast(ub, "string")
             set p: string = cast(pb, "string")
-            print("[ypwee][trace] checking user=[" + u + "] plen=" + i64_to_string(plen) + "\n")
+            print("[ypwee][trace] checking u_len=" + i64_to_string(cast(u.len(), "int64")) + "\n")
             set full: string = u + ":" + p
             set ok = false
             for k in 0..this.cfg.users.len() {
