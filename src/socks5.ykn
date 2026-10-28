@@ -9,16 +9,9 @@ public class UserStore {
     }
 
     fun check(user: string, pass: string) -> bool {
+        set full: string = user + ":" + pass
         for i in 0..this.users.len() {
-            set line: string = this.users[i]
-            set sep = -1
-            for j in 0..line.len() {
-                if line[j] == 58u8 { rewrite sep = j; break }
-            }
-            if sep <= 0 { continue }
-            set u: string = string::from_raw_parts(line.as_ptr(), sep)
-            set p: string = string::from_raw_parts(cast(cast(line.as_ptr(), "int64") + sep + 1, "ptr<uint8>"), cast(line.len() - sep - 1, "int64"))
-            if u == user && p == pass { return true }
+            if this.users[i] == full { return true }
         }
         return false
     }
