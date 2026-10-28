@@ -21,3 +21,11 @@ max-conns = 1024
 handshake-timeout-ms = 30000
 idle-timeout-ms = 300000
 new-conns-per-sec = 50
+
+# MTProto mode (M2+M3) - только при mode = mtproto
+# secret = 16-byte hex string (32 chars) — твой MTProto secret
+# dc_id  = 2
+# Пример конфигурации для mtg:
+# [mtproto]
+# secret = "d41d8cd98f00b204e9800998ecf8427e"
+# dc_id  = 2
