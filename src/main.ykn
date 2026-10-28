@@ -490,3 +490,24 @@ public class Proxy {
         }
     }
 }
+
+fun main() {
+    set cli: string[] = args()
+    set cfg = init Config()
+    if cli.len() > 0 {
+        rewrite cfg = load_config(cli[0])
+    } else {
+        rewrite cfg = load_config("ypwee.conf")
+    }
+    if cfg.users.len() == 0 {
+        eprint("[ypwee] no users configured (user = name:pass) - refusing to start\n")
+        rt::exit(1)
+    }
+    if cfg.allow_targets.len() == 0 {
+        eprint("[ypwee] no allow rules configured (allow = host | *.suffix | *) - refusing to start\n")
+        rt::exit(1)
+    }
+    print("[ypwee] mode=" + cfg.mode + " users=" + i64_to_string(cast(cfg.users.len(), "int64")) + "\n")
+    set p = init Proxy(cfg)
+    p.run()
+}
