@@ -351,6 +351,12 @@ public class Proxy {
             set upass: string = str_slice(rest, p_start, total)
             set okc: bool = false
             eprint("[ypwee] auth uname=[" + uname + "] passlen=" + i64_to_string(cast(upass.len(), "int64")) + "\n")
+                eprint("[ypwee] full=[" + uname + ":" + upass + "]\n")
+                set ul0: int64 = 0
+                while ul0 < this.cfg.users.len() {
+                    eprint("[ypwee] cfguser=[" + this.cfg.users[ul0] + "]\n")
+                    rewrite ul0 += 1
+                }
                 set okc: bool = false
                 if ulen > 0 { rewrite okc = this.store.check(uname, upass) }
             if !okc {
