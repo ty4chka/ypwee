@@ -306,31 +306,30 @@ public class Proxy {
         // ── REQUEST
         if st == 5 {
             if n < 5 { return }
-            set b: bytes = cast(acc, "bytes")
-            set atyp = cast(b[3], "int64")
+            set atyp = cast(buf[3], "int64")
             set need = 0
             set host: string = ""
             if atyp == 1 {
                 rewrite need = 10
                 if n < 10 { return }
-                rewrite host = i64_to_string(cast(b[4], "int64")) + "." +
-                    i64_to_string(cast(b[5], "int64")) + "." +
-                    i64_to_string(cast(b[6], "int64")) + "." +
-                    i64_to_string(cast(b[7], "int64"))
+                rewrite host = i64_to_string(cast(buf[4], "int64")) + "." +
+                    i64_to_string(cast(buf[5], "int64")) + "." +
+                    i64_to_string(cast(buf[6], "int64")) + "." +
+                    i64_to_string(cast(buf[7], "int64"))
             }
             if atyp == 3 {
-                set dlen = cast(b[4], "int64")
+                set dlen = cast(buf[4], "int64")
                 rewrite need = 7 + dlen
                 if n < 5 + dlen + 2 { return }
-                rewrite host = string::from_raw_parts(cast(cast(b.as_ptr(), "int64") + 5, "ptr<uint8>"), dlen)
+                rewrite host = string::from_raw_parts(cast(cast(ptr_of(buf), "int64") + 5, "ptr<uint8>"), dlen)
             }
             if atyp == 4 {
                 rewrite need = 22
                 if n < 22 { return }
                 rewrite host = "v6-placeholder"
             }
-            set port = cast(b[need - 2], "int64") * 256 + cast(b[need - 1], "int64")
-            set cmd = cast(b[1], "int64")
+            set port = cast(buf[need - 2], "int64") * 256 + cast(buf[need - 1], "int64")
+            set cmd = cast(buf[1], "int64")
             if cmd != 1 {
                 this.send_client(ci, socks5_reply(REP_NOT_SUPP))
                 this.drop_client(ci)
@@ -368,11 +367,12 @@ public class Proxy {
     fun http_read(ci: int64) {
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
-        set chunk: string = ""
+        set buf: uint8[16384]
+        set got: int64 = 0
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite chunk = cs.read(4096)
-            if chunk.len() == 0 {
+            rewrite got = cs.read_bytes(ptr_of(buf), 16384)
+            if got <= 0 {
                 this.rearm(ci)
                 return
             }
@@ -381,9 +381,8 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        set acc: string = chunk
-        set b: bytes = cast(acc, "bytes")
-        set n: int64 = cast(b.len(), "int64")
+        set n: int64 = got
+        set b: bytes = string::from_raw_parts(cast(ptr_of(buf), "ptr<uint8>"), n)
         this.rearm(ci)
         // ищем конец заголовков
         set end = -1
@@ -518,7 +517,7 @@ fun main() {
     p.run()
 }
 
-public fun store_check_lenprobe(acc: string, ulen: int64, plen: int64) -> bool {
+public fun store_check_lenprobe(ulen: int64, plen: int64) -> bool {
     set want_u: int64 = 5
     set want_p: int64 = 9
     if ulen == want_u && plen == want_p { return true }
