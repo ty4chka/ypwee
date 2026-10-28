@@ -1,36 +1,37 @@
-// ypwee — HTTP CONNECT helpers (parser works on bytes)
-public fun headers_oversize(ref acc: bytes, limit: int64) -> bool {
-    return cast(acc.len(), "int64") > limit
+// ypwee — HTTP CONNECT helpers (pure string ops via std.strings, no ptr hacks)
+load std.strings: slice
+
+public fun headers_oversize(acc_len: int64, limit: int64) -> bool {
+    return acc_len > limit
 }
 
-public fun connect_target(ref acc: bytes) -> string? {
-    // ищем \r\n\r\n
+public fun connect_target_s(ref acc: string) -> string? {
+    set n: int64 = acc.len()
+    // CR LF CR LF
     set end = -1
     set i: int64 = 0
-    while i + 3 < cast(acc.len(), "int64") {
-        if acc[i] == 13u8 && acc[i + 1] == 10u8 && acc[i + 2] == 13u8 && acc[i + 3] == 10u8 {
+    while i + 3 < n {
+        if acc[i] == 13 && acc[i + 1] == 10 && acc[i + 2] == 13 && acc[i + 3] == 10 {
             rewrite end = i
             break
         }
         rewrite i += 1
     }
     if end < 0 { return null }
-    // первая строка: "METHOD SP TARGET SP HTTP/x"
     set sp1 = -1
     set j: int64 = 0
     while j < end {
-        if acc[j] == 32u8 { rewrite sp1 = j; break }
+        if acc[j] == 32 { rewrite sp1 = j; break }
         rewrite j += 1
     }
     if sp1 < 0 { return null }
     set sp2 = -1
     rewrite j = sp1 + 1
     while j < end {
-        if acc[j] == 32u8 { rewrite sp2 = j; break }
+        if acc[j] == 32 { rewrite sp2 = j; break }
         rewrite j += 1
     }
     if sp2 < 0 { rewrite sp2 = end }
     if sp2 <= sp1 + 1 { return null }
-    set base = cast(acc.as_ptr(), "int64") + sp1 + 1
-    return string::from_raw_parts(cast(base, "ptr<uint8>"), sp2 - sp1 - 1)
+    return slice(ref acc, sp1 + 1, sp2)
 }
