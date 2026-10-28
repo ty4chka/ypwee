@@ -1,272 +1,73 @@
 // ypwee — AES-256-CTR for MTProto obfuscated2 (M2)
-// Pure Yukino. FIPS-197 S-box hardcoded, gf(2^8) helpers, AES-256 key expansion,
-// single-block encrypt, CTR keystream generator.
-
+// Поверх stdlib aes_ctr (std.fs.archives.pass). Счётчик (128-бит big-endian)
+// ведём сами: из aes_ctr берём ровно один блок E_K(counter) на нулевом входе.
+//
+// Почему не E0505: bytes — аффинный тип, cast(bytes, "string") его перемещает.
+// В цикле это move на каждой итерации. Здесь cast делается ОДИН раз до цикла,
+// а в цикле читается string (Copy-тип).
 
 load std.strings: byte_at
-load std.strings: slice as str_slice
-
-
-public fun xtime(a: uint8) -> uint8 {
-    // GF(2^8) ×2
-    set doubled: uint8 = a * 2u8
-    if doubled < a { return doubled ^ 0x1Bu8 }  // overflow: high bit
-    return doubled
-}
-
-public fun gmul(a: uint8, b: uint8) -> uint8 {
-    set p: uint8 = 0u8
-    set aa: uint8 = a
-    set bb: uint8 = b
-    set i: int64 = 0
-    while i < 8 {
-        if (bb & 1u8) == 1u8 {
-            rewrite p = p ^ aa
-        }
-        rewrite aa = xtime(aa)
-        rewrite bb = bb / 2u8
-        rewrite i += 1
-    }
-    return p
-}
-
-// S-box table (256 bytes; FIPS-197 Figure 7) — hardcoded as string of hex chars
-public fun sbox_apply(x: uint8) -> uint8 {
-    set hex_sbox: string = "637c777bf26b6fc53001672bfed7ab76ca82c97dfa5947f0add4a2af9ca472c0b7fd9326363ff7cc34a5e5f171d8311504c723c31896059a071280e2eb27b27509832c1a1b6e5aa0523bd6b329e32f8453d100ed20fcb15b6acbbe394a4c58cfd0efaafb434d338545f9027f503c9fa851a3408f929d38f5bcb6da2110fff3d2cd0c13ec5f974417c4a77e3d645d197360814fdc222a908846eeb814de5e0bdbe0323a0a4906245cc2d3ac629195e479e7c8376d8dd54ea96c56f4ea657aae08ba78252e1ca6b4c6e8dd741f4bbd8b8a703eb5664803f60e613557b986c11d9ee1f8981169d98e949b1e87e9ce5528df8ca1890dbfe6426841992d0fb054bb16"
-    set i: int64 = cast(x, "int64")
-    set pair: string = str_slice(hex_sbox, i * 2, i * 2 + 2)
-    set hv: int64 = hex_val(byte_at(pair, 0))
-    set lv: int64 = hex_val(byte_at(pair, 1))
-    return cast(hv * 16 + lv, "uint8")
-}
-
-public fun hex_val(c: uint8) -> int64 {
-    if c >= 48u8 && c <= 57u8 { return cast(c - 48u8, "int64") }
-    if c >= 97u8 && c <= 102u8 { return cast(c - 97u8, "int64") + 10 }
-    if c >= 65u8 && c <= 70u8 { return cast(c - 65u8, "int64") + 10 }
-    return 0
-}
-
-public fun rcon_byte(i: int64) -> uint8 {
-    // 1,2,4,8,16,32,64,128,27,54 for i=0..9
-    if i == 0 { return 1u8 }
-    if i == 1 { return 2u8 }
-    if i == 2 { return 4u8 }
-    if i == 3 { return 8u8 }
-    if i == 4 { return 16u8 }
-    if i == 5 { return 32u8 }
-    if i == 6 { return 64u8 }
-    if i == 7 { return 128u8 }
-    if i == 8 { return 27u8 }
-    return 54u8
-}
+load std.fs.archives.pass: aes_ctr
 
 public class Aes256Ctr {
-    round_keys: uint8[]   // 240 bytes
-    nonce: uint8[]        // 16 bytes counter
-    counter_pos: int64
-    keystream: uint8[]
+    key: bytes
+    ctr: uint8[]
+    ks: string
+    pos: int64
 
     fun init(key32: bytes, counter16: bytes) {
-        rewrite this.counter_pos = 16
-        set nn: uint8[] = []
+        rewrite this.key = key32
+        set cs: string = cast(counter16, "string")
+        set c: uint8[] = []
         set k: int64 = 0
         while k < 16 {
-            nn.push(byte_at(cast(counter16, "string"), k))
+            c.push(byte_at(cs, k))
             rewrite k += 1
         }
-        rewrite this.nonce = nn
-        set ks: uint8[] = []
-        set k2: int64 = 0
-        while k2 < 16 {
-            ks.push(0u8)
-            rewrite k2 += 1
-        }
-        rewrite this.keystream = ks
-        // key expansion
-        set w: uint8[] = []
-        set kc: int64 = 0
-        while kc < 32 {
-            w.push(byte_at(cast(key32, "string"), kc))
-            rewrite kc += 1
-        }
-        set Nk: int64 = 8
-        set total_words: int64 = 60
-        // iterate by word index wi (4-byte groups)
-        set wi: int64 = 8
-        while wi < total_words {
-            if wi % Nk == 0 {
-                // Rot+Sub+XorRcon using prev word (last 4 bytes)
-                set t1: uint8 = w[(wi - 1) * 4 - 3]
-                set t2: uint8 = w[(wi - 1) * 4 - 2]
-                set t3: uint8 = w[(wi - 1) * 4 - 1]
-                set t4: uint8 = w[(wi - 1) * 4]
-                // RotWord: t2 t3 t4 t1
-                set s1: uint8 = sbox_apply(t2)
-                set s2: uint8 = sbox_apply(t3)
-                set s3: uint8 = sbox_apply(t4)
-                set s4: uint8 = sbox_apply(t1)
-                set rc: uint8 = rcon_byte(wi / Nk - 1)
-                w.push(s1 ^ rc)
-                w.push(s2)
-                w.push(s3)
-                w.push(s4)
-            } elif Nk > 6 && wi % Nk == 4 {
-                set t1: uint8 = w[(wi - 1) * 4 - 3]
-                set t2: uint8 = w[(wi - 1) * 4 - 2]
-                set t3: uint8 = w[(wi - 1) * 4 - 1]
-                set t4: uint8 = w[(wi - 1) * 4]
-                w.push(sbox_apply(t1))
-                w.push(sbox_apply(t2))
-                w.push(sbox_apply(t3))
-                w.push(sbox_apply(t4))
-            } else {
-                set base: int64 = (wi - 1) * 4
-                set base4: int64 = (wi - Nk) * 4
-                w.push(w[base4] ^ w[base])
-                w.push(w[base4 + 1] ^ w[base + 1])
-                w.push(w[base4 + 2] ^ w[base + 2])
-                w.push(w[base4 + 3] ^ w[base + 3])
-            }
-            rewrite wi += 1
-        }
-        rewrite this.round_keys = w
+        rewrite this.ctr = c
+        rewrite this.ks = ""
+        rewrite this.pos = 16
     }
 
-    fun next_keystream() {
-        set block: uint8[] = []
+    fun refill() {
+        set blk: bytes = cast("", "bytes")
+        set zeros: bytes = cast("", "bytes")
         set k: int64 = 0
         while k < 16 {
-            block.push(this.nonce[k])
+            blk.push(this.ctr[k])
+            zeros.push(0u8)
             rewrite k += 1
         }
-        set ks: bytes = aes_encrypt_block_e(block, this.round_keys)
-        set k2: int64 = 0
-        while k2 < 16 {
-            set kv: uint8 = byte_at(cast(ks, "string"), k2)
-            rewrite this.keystream[k2] = kv
-            rewrite k2 += 1
-        }
-        rewrite this.counter_pos = 0
-        // increment nonce (last 8 bytes BE)
+        set raw: bytes = aes_ctr(this.key.cp(), blk, zeros)
+        rewrite this.ks = cast(raw, "string")
+        rewrite this.pos = 0
+        // counter += 1 (128-bit big-endian, как OpenSSL CTR128)
         set idx: int64 = 15
         set carry: int64 = 1
-        while idx >= 8 && carry == 1 {
-            set v: int64 = cast(this.nonce[idx], "int64") + carry
-            if v >= 256 { rewrite this.nonce[idx] = 0u8 } else {
-                rewrite this.nonce[idx] = cast(v, "uint8")
+        while idx >= 0 && carry == 1 {
+            set v: int64 = cast(this.ctr[idx], "int64") + carry
+            if v >= 256 {
+                rewrite this.ctr[idx] = 0u8
+            } else {
+                rewrite this.ctr[idx] = cast(v, "uint8")
                 rewrite carry = 0
             }
             rewrite idx -= 1
         }
     }
 
-    src_data: bytes = cast("", "bytes")
-
     fun apply(data: bytes) -> bytes {
-        rewrite this.src_data = data
+        set ds: string = cast(data, "string")
+        set n: int64 = ds.len()
         set out: bytes = cast("", "bytes")
+        out.reserve(n)
         set i: int64 = 0
-        while i < data.len() {
-            if this.counter_pos >= 16 { this.next_keystream() }
-            set db: uint8 = byte_at(cast(this.src_data, "string"), i)
-            set ksb: uint8 = this.keystream[this.counter_pos]
-            out.push(db ^ ksb)
-            rewrite this.counter_pos += 1
+        while i < n {
+            if this.pos >= 16 { this.refill() }
+            out.push(byte_at(ds, i) ^ byte_at(this.ks, this.pos))
+            rewrite this.pos += 1
             rewrite i += 1
         }
         return out
     }
-}
-
-// AES-256 single block encrypt
-public fun aes_encrypt_block_e(input16: uint8[], round_keys: uint8[]) -> bytes {
-    set state: uint8[] = []
-    set input16c: uint8[] = input16.cp()
-
-    set i: int64 = 0
-    while i < 16 {
-        state.push(input16c[i])
-        rewrite i += 1
-    }
-    add_round_key(ref ~state, round_keys, 0)
-    set round: int64 = 1
-    while round < 14 {
-        sub_bytes(ref ~state)
-        shift_rows(ref ~state)
-        mix_columns(ref ~state)
-        add_round_key(ref ~state, round_keys, round)
-        rewrite round += 1
-    }
-    sub_bytes(ref ~state)
-    shift_rows(ref ~state)
-    add_round_key(ref ~state, round_keys, 14)
-    set out: bytes = cast("", "bytes")
-    set i2: int64 = 0
-    while i2 < 16 {
-        out.push(state[i2])
-        rewrite i2 += 1
-    }
-    return out
-}
-
-public fun add_round_key(ref ~state: uint8[], round_keys: uint8[], round: int64) {
-    set i: int64 = 0
-    while i < 16 {
-        set v: uint8 = state[i] ^ round_keys[round * 16 + i]
-        rewrite state[i] = v
-        rewrite i += 1
-    }
-}
-
-public fun sub_bytes(ref ~state: uint8[]) {
-    set i: int64 = 0
-    while i < 16 {
-        set v: uint8 = sbox_apply(state[i])
-        rewrite state[i] = v
-        rewrite i += 1
-    }
-}
-
-public fun shift_rows(ref ~state: uint8[]) {
-    set t1a: uint8 = state[1]
-    rewrite state[1] = state[5]
-    rewrite state[5] = state[9]
-    rewrite state[9] = state[13]
-    rewrite state[13] = t1a
-    set t2a: uint8 = state[2]
-    set t2b: uint8 = state[6]
-    rewrite state[2] = state[10]
-    rewrite state[10] = t2a
-    rewrite state[6] = state[14]
-    rewrite state[14] = t2b
-    set t3a: uint8 = state[15]
-    rewrite state[15] = state[11]
-    rewrite state[11] = state[7]
-    rewrite state[7] = state[3]
-    rewrite state[3] = t3a
-}
-
-public fun mix_columns(ref ~state: uint8[]) {
-    set col: int64 = 0
-    while col < 4 {
-        set base: int64 = col * 4
-        set a0: uint8 = state[base]
-        set a1: uint8 = state[base + 1]
-        set a2: uint8 = state[base + 2]
-        set a3: uint8 = state[base + 3]
-        set v0: uint8 = gmul(a0, 2u8) ^ gmul(a1, 3u8) ^ a2 ^ a3
-        set v1: uint8 = a0 ^ gmul(a1, 2u8) ^ gmul(a2, 3u8) ^ a3
-        set v2: uint8 = a0 ^ a1 ^ gmul(a2, 2u8) ^ gmul(a3, 3u8)
-        set v3: uint8 = gmul(a0, 3u8) ^ a1 ^ a2 ^ gmul(a3, 2u8)
-        rewrite state[base] = v0
-        rewrite state[base + 1] = v1
-        rewrite state[base + 2] = v2
-        rewrite state[base + 3] = v3
-        rewrite col += 1
-    }
-}
-
-public fun bytes_str(b: bytes) -> string {
-    return cast(b, "string")
 }

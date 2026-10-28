@@ -1,0 +1,25 @@
+load .aes: Aes256Ctr
+load std.hash.common: hex_to_bytes, bytes_to_hex
+
+// NIST SP 800-38A, F.5.5 CTR-AES256.Encrypt (блоки 1-2; второй блок проверяет инкремент счётчика)
+#[test]
+fun nist_ctr_aes256_two_blocks() {
+    set key = hex_to_bytes("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4")
+    set ctr = hex_to_bytes("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff")
+    set c = init Aes256Ctr(key, ctr)
+    set pt = hex_to_bytes("6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51")
+    set ct = c.apply(pt)
+    assert(bytes_to_hex(ref ct) == "601ec313775789a5b7a7f504bbf3d228f443e3ca4d62b59aca84e990cacaf5c5", "NIST F.5.5 mismatch")
+}
+
+// Потоковость: два вызова apply по частям = один вызов целиком
+#[test]
+fun ctr_split_calls_match() {
+    set key = hex_to_bytes("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4")
+    set ctr = hex_to_bytes("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff")
+    set c = init Aes256Ctr(key, ctr)
+    set a = c.apply(hex_to_bytes("6bc1bee22e409f96e9"))
+    set b = c.apply(hex_to_bytes("3d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51"))
+    assert(bytes_to_hex(ref a) == "601ec313775789a5b7", "part 1")
+    assert(bytes_to_hex(ref b) == "a7f504bbf3d228f443e3ca4d62b59aca84e990cacaf5c5", "part 2")
+}
