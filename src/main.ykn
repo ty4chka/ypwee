@@ -279,7 +279,7 @@ public class Proxy {
                 rewrite this.c_method_count = b0
                 rewrite this.c_method_seen = 0
             } elif st == 22 {
-                if b0 == 2 { this.c_method_seen = 1 }
+                if b0 == 2 { rewrite this.c_method_seen = 1 }
                 rewrite this.c_method_count -= 1
                 if this.c_method_count == 0 {
                     if this.c_method_seen == 0 {
@@ -295,20 +295,20 @@ public class Proxy {
                 this.c_state.set_i64(ci, 41)
                 rewrite this.c_buf = ""
             } elif st == 41 {
-                this.c_buf = this.c_buf + cast(cast(b0, "uint8"), "string")
+                rewrite this.c_buf = this.c_buf + cast(cast(b0, "uint8"), "string")
                 rewrite this.c_ulen -= 1
                 if this.c_ulen == 0 { this.c_state.set_i64(ci, 42) }
             } elif st == 42 {
                 rewrite this.c_plen = b0
                 this.c_state.set_i64(ci, 43)
             } elif st == 43 {
-                this.c_buf = this.c_buf + cast(cast(b0, "uint8"), "string")
+                rewrite this.c_buf = this.c_buf + cast(cast(b0, "uint8"), "string")
                 rewrite this.c_plen -= 1
                 if this.c_plen == 0 { this.c_state.set_i64(ci, 44) }
             } elif st == 44 {
                 // complete userpass: c_buf = "alice" + "changeMe1" (concat)
                 set ul: int64 = 5
-                rewrite this.c_state.set_i64(ci, 5)
+                this.c_state.set_i64(ci, 5)
                 this.send_client(ci, userpass_reply(true))
                 this.rearm(ci)
                 return
