@@ -21,3 +21,9 @@ max-conns = 1024
 handshake-timeout-ms = 30000
 idle-timeout-ms = 300000
 new-conns-per-sec = 50
+
+# MTProto FakeTLS (mtg-compatible, M2+M3)
+# Порт 443: TLS-ClientHello с HMAC-SHA256(secret) в FakeTLS
+# client приходит с тем же secret (EE-протокол от Telegram)
+mtproto = true
+mtproto-secret = d41d8cd98f00b204e9800998ecf8427e
