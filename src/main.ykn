@@ -232,7 +232,8 @@ public class Proxy {
         if kopt == null { return }
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            this.poller.modify_stream(ref cs, POLL_READABLE, cast(kopt ?? 0, "uint64"))
+            this.poller.remove_stream(ref cs)
+            this.poller.add_stream(ref cs, POLL_READABLE, cast(kopt ?? 0, "uint64"))
         } catch { space }
     }
 
