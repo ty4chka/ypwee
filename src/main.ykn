@@ -1,6 +1,6 @@
 load std.net: SocketPoller, POLL_READABLE, tcp_listen, tcp_connect
 load std.collections.hashmap: HashMap
-load std.strings: byte_at, slice
+load std.strings: byte_at, slice as str_slice
 load std.io: print, eprint
 load .config: Config, load_config, is_private_target
 load .sniff: is_socks5_hello
@@ -294,8 +294,8 @@ public class Proxy {
             set plen = cast(byte_at(acc, 1 + ulen), "int64")
             if n < 2 + ulen + plen { return }
             print("[ypwee][trace] ulen=" + i64_to_string(ulen) + " plen=" + i64_to_string(plen) + "\n")
-            set u: string = std.strings.slice(acc, 1, 1 + ulen)
-            set p: string = std.strings.slice(acc, 2 + ulen, 2 + ulen + plen)
+            set u: string = str_slice(acc, 1, 1 + ulen)
+            set p: string = str_slice(acc, 2 + ulen, 2 + ulen + plen)
             set full: string = u + ":" + p
             set ok = false
             for k in 0..this.cfg.users.len() {
