@@ -541,6 +541,7 @@ public class Proxy {
         sus {
             set up = tcp_connect(t, this.cfg.hs_timeout_s * 1000)
             up.set_nonblocking(true)
+            eprint("[ypwee] http CONNECT established\n")
             this.send_client_str(ci, "HTTP/1.1 200 Connection Established\r\n\r\n")
             this.start_relay(ci, up)
         } catch {
