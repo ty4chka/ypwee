@@ -91,6 +91,7 @@ public class Proxy {
     }
 
     fun run() {
+        print("[ypwee][trace] run loop start\n")
         rewrite this.sock_l = tcp_listen(this.cfg.socks5_addr)
         this.sock_l?.set_nonblocking(true)
         set l1 = this.sock_l ?? tcp_listen(this.cfg.socks5_addr)
@@ -104,7 +105,7 @@ public class Proxy {
         while true {
             set events = this.poller.wait(1000)
             rewrite this.tick += 1
-            if this.tick < 4 { + " events=" + i64_to_string(cast(events.len(), "int64")) + "\n") }
+            if this.tick < 4 { print("[ypwee][trace] tick=" + i64_to_string(this.tick) + " events=" + i64_to_string(cast(events.len(), "int64")) + "\n") }
             for i in 0..events.len() {
                 set ev = events[i]
                 if ev.key == KEY_SOCKS_L && ev.readable {
@@ -128,7 +129,9 @@ public class Proxy {
         rewrite this.sec_count += 1
         if this.sec_count > this.cfg.rate_per_sec { return }
         if this.c_id.len() >= this.cfg.max_conns { return }
+        print("[ypwee][trace] accept_one enter\n")
         set c = listener.accept()
+        print("[ypwee][trace] accepted\n")
         c.set_nonblocking(true)
         rewrite this.next_key += 1
         this.poller.add_stream(ref c, POLL_READABLE, cast(this.next_key, "uint64"))
@@ -189,6 +192,7 @@ public class Proxy {
         set kopt = this.c_pollkey.get_i64(ci)
         if kopt != null { this.c_key_of.remove_i64(kopt ?? 0) }
         this.c_pollkey.remove_i64(ci)
+        this.c_acc.remove(i64_to_string(ci))
         this.c_id.remove_i64(ci)
         this.c_state.remove_i64(ci)
         this.c_upkey.remove_i64(ci)
@@ -227,6 +231,11 @@ public class Proxy {
         }
         set ci: int64 = this.c_find(k)
         if ci < 0 { return }
+        set st0: int64 = this.c_state.get_i64(ci) ?? 0
+        if st0 == 10 {
+            this.relay_client_to_up(ci)
+            return
+        }
         set issocks: int64 = this.c_sock.get_i64(ci) ?? 0
         if issocks == 1 {
             this.socks_read(ci)
@@ -246,6 +255,8 @@ public class Proxy {
         } catch { space }
     }
 
+    // Один read за событие. Хвост недочитанного сообщения копится в c_acc[ci].
+    // Состояние парсера — только c_state[ci] (1=greet, 3=userpass, 5=request).
     fun socks_read(ci: int64) {
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
@@ -253,106 +264,198 @@ public class Proxy {
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
             rewrite chunk = cs.read(4096)
-            set more: int64 = 1
-            while more == 1 {
-                set extra: string = cs.read(4096)
-                if extra.len() == 0 {
-                    rewrite more = 0
-                } else {
-                    rewrite chunk = chunk + extra
-                }
-            }
-            if chunk.len() == 0 {
-                this.rearm(ci)
-                return
-            }
-            this.c_idletick.set_i64(ci, this.tick)
         } catch {
             this.drop_client(ci)
             return
         }
-        set n: int64 = cast(chunk.len(), "int64")
-        set jj: int64 = 0
-        while jj < n {
-            set b0: int64 = cast(byte_at(chunk, jj), "int64")
-            set st: int64 = this.c_state.get_i64(ci) ?? 0
-            // state machine: 1 = wait VER, 21 = wait NMETHODS, 22 = count methods, 3 = wait ULEN, 4 = count ULEN+PLEN payload, 5 = wait VER(REQ), 41..45 = etc.
-            if st == 1 {
-                if b0 != 5 { this.drop_client(ci); return }
-                this.c_state.set_i64(ci, 21)
-            } elif st == 21 {
-                this.c_state.set_i64(ci, 22)
-                rewrite this.c_method_count = b0
-                rewrite this.c_method_seen = 0
-            } elif st == 22 {
-                if b0 == 2 { rewrite this.c_method_seen = 1 }
-                rewrite this.c_method_count -= 1
-                if this.c_method_count == 0 {
-                    if this.c_method_seen == 0 {
-                        this.send_client(ci, method_reply(255u8))
-                        this.drop_client(ci)
-                        return
-                    }
-                    this.send_client(ci, method_reply(2u8))
-                    this.c_state.set_i64(ci, 3)
-                }
-            } elif st == 3 {
-                rewrite this.c_ulen = b0
-                this.c_state.set_i64(ci, 41)
-                rewrite this.c_buf = ""
-            } elif st == 41 {
-                rewrite this.c_buf = this.c_buf + cast(cast(b0, "uint8"), "string")
-                rewrite this.c_ulen -= 1
-                if this.c_ulen == 0 { this.c_state.set_i64(ci, 42) }
-            } elif st == 42 {
-                rewrite this.c_plen = b0
-                this.c_state.set_i64(ci, 43)
-            } elif st == 43 {
-                rewrite this.c_buf = this.c_buf + cast(cast(b0, "uint8"), "string")
-                rewrite this.c_plen -= 1
-                if this.c_plen == 0 { this.c_state.set_i64(ci, 44) }
-            } elif st == 44 {
-                // complete userpass: c_buf = "alice" + "changeMe1" (concat)
-                set ul: int64 = 5
-                this.c_state.set_i64(ci, 5)
-                this.send_client(ci, userpass_reply(true))
-                this.rearm(ci)
-                return
-            } elif st == 5 {
-                this.c_state.set_i64(ci, 51)
-            } elif st == 51 {
-                this.c_state.set_i64(ci, 52)
-            } elif st == 52 {
-                rewrite this.c_atyp = b0
-                this.c_state.set_i64(ci, 53)
-            } elif st == 53 {
-                this.c_state.set_i64(ci, 54)
-            } elif st == 54 {
-                this.c_state.set_i64(ci, 55)
-            } elif st == 55 {
-                this.c_state.set_i64(ci, 56)
-            } elif st == 56 {
-                this.rearm(ci)
-                return
-            } else {
-                this.rearm(ci)
-                return
-            }
-            rewrite jj += 1
+        if chunk.len() == 0 {
+            // EOF от клиента
+            this.drop_client(ci)
+            return
         }
+        this.c_idletick.set_i64(ci, this.tick)
+        set key: string = i64_to_string(ci)
+        set rest: string = (this.c_acc.get(key) ?? "") + chunk
+        if rest.len() > 1024 {
+            this.drop_client(ci)
+            return
+        }
+        set going: int64 = 1
+        while going == 1 {
+            set st: int64 = this.c_state.get_i64(ci) ?? 0
+            set used: int64 = this.socks_step(ci, st, rest)
+            if used < 0 { return }
+            if used == 0 {
+                rewrite going = 0
+            } else {
+                set rlen: int64 = cast(rest.len(), "int64")
+                rewrite rest = str_slice(rest, used, rlen)
+            }
+        }
+        this.c_acc.set(key, rest)
         this.rearm(ci)
+    }
+
+    // Разбирает ОДНО сообщение из начала rest.
+    // Возврат: >0 — сколько байт съедено; 0 — данных мало, ждём ещё;
+    //          <0 — клиент закрыт или переведён в релей (rest больше не трогаем).
+    fun socks_step(ci: int64, st: int64, rest: string) -> int64 {
+        set n: int64 = cast(rest.len(), "int64")
+
+        // --- greeting: VER NMETHODS METHODS... ---
+        if st == 1 {
+            if n < 2 { return 0 }
+            set v0: int64 = cast(byte_at(rest, 0), "int64")
+            if v0 != 5 {
+                this.drop_client(ci)
+                return -1
+            }
+            set nm: int64 = cast(byte_at(rest, 1), "int64")
+            set need: int64 = 2 + nm
+            if n < need { return 0 }
+            set has_up: int64 = 0
+            set k: int64 = 0
+            while k < nm {
+                set mpos: int64 = 2 + k
+                if cast(byte_at(rest, mpos), "int64") == 2 { rewrite has_up = 1 }
+                rewrite k += 1
+            }
+            if has_up == 0 {
+                this.send_client(ci, method_reply(255u8))
+                this.drop_client(ci)
+                return -1
+            }
+            this.send_client(ci, method_reply(2u8))
+            this.c_state.set_i64(ci, 3)
+            return need
+        }
+
+        // --- RFC 1929: VER(=1) ULEN UNAME PLEN PASSWD ---
+        if st == 3 {
+            if n < 2 { return 0 }
+            set sv: int64 = cast(byte_at(rest, 0), "int64")
+            if sv != 1 {
+                this.drop_client(ci)
+                return -1
+            }
+            set ulen: int64 = cast(byte_at(rest, 1), "int64")
+            set plen_pos: int64 = 2 + ulen
+            set need_p: int64 = plen_pos + 1
+            if n < need_p { return 0 }
+            set plen: int64 = cast(byte_at(rest, plen_pos), "int64")
+            set total: int64 = 3 + ulen + plen
+            if n < total { return 0 }
+            set u_end: int64 = 2 + ulen
+            set p_start: int64 = 3 + ulen
+            set uname: string = str_slice(rest, 2, u_end)
+            set upass: string = str_slice(rest, p_start, total)
+            set okc: bool = false
+            if ulen > 0 { rewrite okc = this.store.check(uname, upass) }
+            if !okc {
+                eprint("[ypwee] socks5 auth failed\n")
+                this.send_client(ci, userpass_reply(false))
+                this.drop_client(ci)
+                return -1
+            }
+            this.send_client(ci, userpass_reply(true))
+            this.c_state.set_i64(ci, 5)
+            return total
+        }
+
+        // --- request: VER CMD RSV ATYP DST.ADDR DST.PORT ---
+        if st == 5 {
+            if n < 5 { return 0 }
+            set rv: int64 = cast(byte_at(rest, 0), "int64")
+            set cmd: int64 = cast(byte_at(rest, 1), "int64")
+            set atyp: int64 = cast(byte_at(rest, 3), "int64")
+            if rv != 5 {
+                this.drop_client(ci)
+                return -1
+            }
+            if cmd != 1 {
+                this.send_client(ci, socks5_reply(7u8))
+                this.drop_client(ci)
+                return -1
+            }
+            set host: string = ""
+            set port_pos: int64 = 0
+            if atyp == 3 {
+                set dl: int64 = cast(byte_at(rest, 4), "int64")
+                rewrite port_pos = 5 + dl
+                set need_d: int64 = port_pos + 2
+                if n < need_d { return 0 }
+                set h_end: int64 = 5 + dl
+                rewrite host = str_slice(rest, 5, h_end)
+            } elif atyp == 1 {
+                rewrite port_pos = 8
+                if n < 10 { return 0 }
+                set o1: int64 = cast(byte_at(rest, 4), "int64")
+                set o2: int64 = cast(byte_at(rest, 5), "int64")
+                set o3: int64 = cast(byte_at(rest, 6), "int64")
+                set o4: int64 = cast(byte_at(rest, 7), "int64")
+                rewrite host = i64_to_string(o1) + "." + i64_to_string(o2) + "." + i64_to_string(o3) + "." + i64_to_string(o4)
+            } else {
+                // IPv6 (ATYP=4) в M1 не поддержан
+                this.send_client(ci, socks5_reply(8u8))
+                this.drop_client(ci)
+                return -1
+            }
+            set pp1: int64 = port_pos + 1
+            set ph: int64 = cast(byte_at(rest, port_pos), "int64")
+            set pl: int64 = cast(byte_at(rest, pp1), "int64")
+            set port: int64 = ph * 256 + pl
+            set consumed: int64 = port_pos + 2
+            if host.len() == 0 || port == 0 {
+                this.send_client(ci, socks5_reply(1u8))
+                this.drop_client(ci)
+                return -1
+            }
+            if !this.cfg.target_allowed(host) {
+                this.send_client(ci, socks5_reply(2u8))
+                this.drop_client(ci)
+                return -1
+            }
+            set target: string = host + ":" + i64_to_string(port)
+            set connected: int64 = 0
+            sus {
+                set up = tcp_connect(target, this.cfg.hs_timeout_s * 1000)
+                up.set_nonblocking(true)
+                this.send_client(ci, socks5_reply(0u8))
+                this.start_relay(ci, up)
+                rewrite connected = 1
+            } catch {
+                rewrite connected = 0
+            }
+            if connected == 0 {
+                this.send_client(ci, socks5_reply(4u8))
+                this.drop_client(ci)
+                return -1
+            }
+            // start_relay перевёл ci в состояние 10; клиентский сокет нужно взвести заново
+            this.rearm(ci)
+            return -1
+        }
+
+        // неизвестное состояние
+        this.drop_client(ci)
+        return -1
     }
 
     fun send_client(ci: int64, data: bytes) {
         set idopt = this.c_id.get_i64(ci)
         if idopt == null {
+            print("[ypwee][trace] send_client: NO id for ci\n")
             return
         }
+        print("[ypwee][trace] send_client write\n")
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            set wn = cs.write_bytes(data.as_ptr(), cast(data.len(), "int64")) + "\n")
+            set wn = cs.write_bytes(data.as_ptr(), cast(data.len(), "int64"))
+            print("[ypwee][trace] wrote=" + i64_to_string(wn) + "\n")
             cs.flush()
+            print("[ypwee][trace] flushed\n")
         } catch {
+            print("[ypwee][trace] send_client EXC\n")
             space
         }
     }
@@ -463,6 +566,17 @@ public class Proxy {
         this.c_idletick.set_i64(ci, this.tick)
     }
 
+    // oneshot-poller: после каждого события апстрим-сокет надо взводить заново
+    fun rearm_up(uk: int64) {
+        set usopt = this.u_id.get_i64(uk)
+        if usopt == null { return }
+        sus {
+            set us = init TcpStream(cast(usopt ?? 0, "uint64"))
+            this.poller.remove_stream(ref us)
+            this.poller.add_stream(ref us, POLL_READABLE, cast(uk, "uint64"))
+        } catch { space }
+    }
+
     fun relay_up_to_client(ci: int64, uk: int64) {
         set usopt = this.u_id.get_i64(uk)
         if usopt == null { return }
@@ -476,24 +590,71 @@ public class Proxy {
             this.u_ci.remove_i64(uk)
             return
         }
+        set chunk: string = ""
         sus {
-            set us = init TcpStream(cast(usopt ?? 0, "uint64"))
-            set chunk: string = us.read(65536)
-            if chunk.len() == 0 {
-                this.rearm(ci)
-                return
-            }
-            this.c_idletick.set_i64(ci, this.tick)
-            sus {
-                set cs = init TcpStream(cast(csopt ?? 0, "uint64"))
-                cs.write(chunk)
-                cs.flush()
-            } catch {
-                this.drop_client(ci)
-            }
+            set us2 = init TcpStream(cast(usopt ?? 0, "uint64"))
+            rewrite chunk = us2.read(65536)
         } catch {
             this.drop_client(ci)
+            return
         }
+        if chunk.len() == 0 {
+            // апстрим закрыл соединение
+            this.drop_client(ci)
+            return
+        }
+        set okw: int64 = 1
+        sus {
+            set cs = init TcpStream(cast(csopt ?? 0, "uint64"))
+            cs.write(chunk)
+            cs.flush()
+        } catch {
+            rewrite okw = 0
+        }
+        if okw == 0 {
+            this.drop_client(ci)
+            return
+        }
+        this.c_idletick.set_i64(ci, this.tick)
+        this.rearm_up(uk)
+    }
+
+    fun relay_client_to_up(ci: int64) {
+        set csopt = this.c_id.get_i64(ci)
+        if csopt == null { return }
+        set ukopt = this.c_upkey.get_i64(ci)
+        set uk: int64 = ukopt ?? 0
+        set usopt = this.u_id.get_i64(uk)
+        if usopt == null {
+            this.drop_client(ci)
+            return
+        }
+        set chunk: string = ""
+        sus {
+            set cs = init TcpStream(cast(csopt ?? 0, "uint64"))
+            rewrite chunk = cs.read(65536)
+        } catch {
+            this.drop_client(ci)
+            return
+        }
+        if chunk.len() == 0 {
+            this.drop_client(ci)
+            return
+        }
+        set okw: int64 = 1
+        sus {
+            set us = init TcpStream(cast(usopt ?? 0, "uint64"))
+            us.write(chunk)
+            us.flush()
+        } catch {
+            rewrite okw = 0
+        }
+        if okw == 0 {
+            this.drop_client(ci)
+            return
+        }
+        this.c_idletick.set_i64(ci, this.tick)
+        this.rearm(ci)
     }
 }
 
