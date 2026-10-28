@@ -295,7 +295,8 @@ public class Proxy {
                 this.rearm(ci)
                 return 
             }
-            set plen = cast(byte_at(chunk, 1 + ulen), "int64")
+            set plen_idx: int64 = 1 + ulen
+            set plen = cast(byte_at(chunk, plen_idx), "int64")
             if n < 2 + ulen + plen { 
                 this.rearm(ci)
                 return 
@@ -345,13 +346,18 @@ public class Proxy {
                     this.rearm(ci)
                     return 
                 }
-                rewrite host = i64_to_string(cast(byte_at(chunk, 4), "int64")) + "." +
-                    i64_to_string(cast(byte_at(chunk, 5), "int64")) + "." +
-                    i64_to_string(cast(byte_at(chunk, 6), "int64")) + "." +
-                    i64_to_string(cast(byte_at(chunk, 7), "int64"))
+                set o4: int64 = 4
+                set o5: int64 = 5
+                set o6: int64 = 6
+                set o7: int64 = 7
+                rewrite host = i64_to_string(cast(byte_at(chunk, o4), "int64")) + "." +
+                    i64_to_string(cast(byte_at(chunk, o5), "int64")) + "." +
+                    i64_to_string(cast(byte_at(chunk, o6), "int64")) + "." +
+                    i64_to_string(cast(byte_at(chunk, o7), "int64"))
             }
             if atyp == 3 {
-                set dlen = cast(byte_at(chunk, 4), "int64")
+                set d_idx: int64 = 4
+                set dlen = cast(byte_at(chunk, d_idx), "int64")
                 rewrite need = 7 + dlen
                 if n < 5 + dlen + 2 { 
                     this.rearm(ci)
@@ -373,7 +379,9 @@ public class Proxy {
                 }
                 rewrite host = "v6-placeholder"
             }
-            set port = cast(byte_at(chunk, need - 2), "int64") * 256 + cast(byte_at(chunk, need - 1), "int64")
+            set p_hi: int64 = need - 2
+            set p_lo: int64 = need - 1
+            set port = cast(byte_at(chunk, p_hi), "int64") * 256 + cast(byte_at(chunk, p_lo), "int64")
             set cmd = cast(byte_at(chunk, 1), "int64")
             print("[ypwee][trace] host=" + host + " port=" + i64_to_string(port) + "\n")
             if cmd != 1 {
