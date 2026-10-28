@@ -36,7 +36,7 @@ public class Proxy {
     // client flows
     c_key: uint64[]
     c_id: uint64[]
-    c_state: uint64[]
+    c_state: int64[]
     c_is_socks: bool[]
     c_acc: bytes[]
     c_user: string[]
@@ -128,11 +128,11 @@ public class Proxy {
     fun push_client(k: uint64, id: uint64, is_socks: bool) {
         this.c_key.push(k)
         this.c_id.push(id)
-        set s0: uint64 = 1u64
+        set s0: int64 = 1
         if is_socks {
-            rewrite s0 = 1u64
+            rewrite s0 = 1
         } else {
-            rewrite s0 = 6u64
+            rewrite s0 = 6
         }
         this.c_state.push(s0)
         this.c_is_socks.push(is_socks)
@@ -200,8 +200,8 @@ public class Proxy {
         // идём с конца — drop_client меняет индексы после swap
         set i = cast(this.c_key.len(), "int64") - 1
         while i >= 0 {
-            set st: uint64 = this.c_state[i]
-            if st < ST_RELAY_C {
+            set st: int64 = this.c_state[i]
+            if st < 10 {
                 // handshake: строгий таймаут
                 if this.tick - this.c_idletick[i] > this.cfg.hs_timeout_s {
                     eprint("[ypwee] handshake timeout\n")
@@ -251,21 +251,19 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        set st: uint64 = this.c_state[ci]
+        set st: int64 = this.c_state[ci]
         print("[ypwee][trace] raw read done\n")
-        if st == 1u64 { print("[ypwee][trace] state=1 VER\n") }
-        if st == 6u64 { print("[ypwee][trace] state=6 HTTP\n") }
-        if st == 0u64 { print("[ypwee][trace] state=0 ZERO\n") }
-        set stv: int64 = cast(st, "int64")
-        if stv > 0 && stv < 100 { print("[ypwee][trace] state small ok 1..99\n") }
-        if st == HS_SOCKS_USERPASS_LEN { print("[ypwee][trace] state=HS_SOCKS_USERPASS_LEN\n") }
-        if st == HS_SOCKS_REQ { print("[ypwee][trace] state=HS_SOCKS_REQ\n") }
-        if st == ST_RELAY_C { print("[ypwee][trace] state=ST_RELAY\n") }
+        if st == 1 { print("[ypwee][trace] state=1 VER\n") }
+        if st == 6 { print("[ypwee][trace] state=6 HTTP\n") }
+        if st == 0 { print("[ypwee][trace] state=0 ZERO\n") }
+        if st == 3 { print("[ypwee][trace] state=HS_SOCKS_USERPASS_LEN\n") }
+        if st == 5 { print("[ypwee][trace] state=HS_SOCKS_REQ\n") }
+        if st == 10 { print("[ypwee][trace] state=ST_RELAY\n") }
         set acl = cast(this.c_acc[ci].len(), "int64")
         if acl == 3 { print("[ypwee][trace] acc len=3 ok\n") }
 
         // ── VER+NMETHODS
-        if st == HS_SOCKS_VER {
+        if st == 1 {
             if this.c_acc[ci].len() < 2 { return }
             if this.c_acc[ci][0] != 5u8 { this.drop_client(ci); return }
             set nm = cast(this.c_acc[ci][1], "int64")
@@ -285,12 +283,12 @@ public class Proxy {
             print("[ypwee][trace] sending method_reply(2)\n")
             this.send_client(ci, method_reply(2u8))
             rewrite this.c_acc[ci] = []
-            rewrite this.c_state[ci] = HS_SOCKS_USERPASS_LEN
+            rewrite this.c_state[ci] = 3
             return
         }
 
         // ── USERPASS: ULEN U... PLEN P...
-        if st == HS_SOCKS_USERPASS_LEN {
+        if st == 3 {
             if this.c_acc[ci].len() < 1 { return }
             set ulen = cast(this.c_acc[ci][0], "int64")
             if this.c_acc[ci].len() < 1 + ulen + 1 { return }
@@ -307,12 +305,12 @@ public class Proxy {
             }
             rewrite this.c_user[ci] = u
             rewrite this.c_pass[ci] = p
-            rewrite this.c_state[ci] = HS_SOCKS_REQ
+            rewrite this.c_state[ci] = 5
             return
         }
 
         // ── REQUEST: VER CMD RSV ATYP ADDR PORT
-        if st == HS_SOCKS_REQ {
+        if st == 5 {
             if this.c_acc[ci].len() < 5 { return }
             set atyp = cast(this.c_acc[ci][3], "int64")
             set need = 0
@@ -456,11 +454,11 @@ public class Proxy {
         set uk: uint64 = this.next_key
         this.poller.add_stream(ref upstream, POLL_READABLE, uk)
         rewrite this.c_upkey[ci] = uk
-        rewrite this.c_state[ci] = ST_RELAY_C
+        rewrite this.c_state[ci] = 10
         this.u_key.push(uk)
         this.u_id.push(upstream.id)
         this.u_cidx.push(ci)
-        rewrite this.c_state[ci] = ST_RELAY_C
+        rewrite this.c_state[ci] = 10
         // upstream-side phase
         // (upstream сам добавлен; помечаем его state через отдельный массив не требуется — отработка по u_*)
         rewrite this.c_idletick[ci] = this.tick
