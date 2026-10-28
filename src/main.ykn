@@ -295,9 +295,9 @@ public class Proxy {
             if n < 1 + ulen + 1 { return }
             set plen = cast(b[1 + ulen], "int64")
             if n < 2 + ulen + plen { return }
-            set u: string = string::from_raw_parts(cast(cast(b.as_ptr(), "int64") + 1, "ptr<uint8>"), ulen)
-            set p: string = string::from_raw_parts(cast(cast(b.as_ptr(), "int64") + 2 + ulen, "ptr<uint8>"), plen)
-            set ok = this.store.check(u, p)
+            print("[ypwee][trace] ulen=" + i64_to_string(ulen) + " plen=" + i64_to_string(plen) + "\n")
+            set up = store_check(this.cfg.users, acc, ulen, plen)
+            set ok = up
             this.send_client(ci, userpass_reply(ok))
             if !ok {
                 this.drop_client(ci)
@@ -523,4 +523,28 @@ fun main() {
     print("[ypwee] mode=" + cfg.mode + " users=" + i64_to_string(cast(cfg.users.len(), "int64")) + "\n")
     set p = init Proxy(cfg)
     p.run()
+}
+
+public fun store_check(users: string[], acc: string, ulen: int64, plen: int64) -> bool {
+    // acc = [1][ULEN U...][PLEN P...]; build "U:P" via bytes index copy into fresh bytes
+    set b: bytes = cast(acc, "bytes")
+    set u: bytes = []
+    set j: int64 = 0
+    while j < ulen {
+        u.push(b[1 + j])
+        rewrite j += 1
+    }
+    set p: bytes = []
+    set j2: int64 = 0
+    while j2 < plen {
+        p.push(b[2 + ulen + j2])
+        rewrite j2 += 1
+    }
+    set us: string = cast(u, "string")
+    set ps: string = cast(p, "string")
+    set full = us + ":" + ps
+    for k in 0..users.len() {
+        if users[k] == full { return true }
+    }
+    return false
 }
