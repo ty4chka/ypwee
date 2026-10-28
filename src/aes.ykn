@@ -142,7 +142,7 @@ public class Aes256Ctr {
             block.push(this.nonce[k])
             rewrite k += 1
         }
-        set ks: bytes = aes_encrypt_block_e(ref block, ref this.round_keys)
+        set ks: bytes = aes_encrypt_block_e(block, this.round_keys)
         set k2: int64 = 0
         while k2 < 16 {
             set kv: uint8 = byte_at(ks, k2)
