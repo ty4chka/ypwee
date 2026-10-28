@@ -471,13 +471,12 @@ public class Proxy {
             }
             set secret_hex: string = this.cfg.mtproto_secret
             set sec_bytes: bytes = secret_to_bytes(secret_hex)
-            set hs: bytes = cast(chunk, "bytes")
-            set dc_id: int64 = mtproto_parse_handshake_verify(hs, sec_bytes)
+            set dc_id: int64 = mtproto_parse_handshake_verify(chunk, sec_bytes)
             if dc_id < 0 {
                 this.drop_client(ci)
                 return
             }
-            set proof: bytes = mtproto_server_proof(hs, sec_bytes)
+            set proof: bytes = mtproto_server_proof(chunk, sec_bytes)
             this.send_client(ci, proof)
             set target: string = dc_addr(dc_id)
             sus {

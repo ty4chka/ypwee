@@ -47,7 +47,7 @@ public fun hex_val(c: uint8) -> int64 {
 
 // Генерирует ответ сервера: HMAC proof (32 bytes), отдаётся клиенту
 //作为 FakeTLS ServerHello (TLS 1.3 style)
-public fun mtproto_parse_handshake_verify(handshake: bytes, secret: bytes) -> int64 {
+public fun mtproto_parse_handshake_verify(handshake: string, secret: bytes) -> int64 {
     if handshake.len() < 64 { return -1 }
     // dc_id
     set dc_b0: int64 = cast(byte_at(handshake, 56), "int64")
@@ -78,7 +78,7 @@ public fun mtproto_parse_handshake_verify(handshake: bytes, secret: bytes) -> in
 }
 
 // Возвращает 32-байтный HMAC-SHA256 proof для ServerHello
-public fun mtproto_server_proof(handshake: bytes, secret: bytes) -> bytes {
+public fun mtproto_server_proof(handshake: string, secret: bytes) -> bytes {
     set prefix: bytes = cast("", "bytes")
     set i: int64 = 0
     while i < 64 {
