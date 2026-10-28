@@ -1,6 +1,6 @@
 load std.net: SocketPoller, POLL_READABLE, tcp_listen, tcp_connect
 load std.collections.hashmap: HashMap
-load std.strings: byte_at
+load std.strings: slice as str_slice
 load std.strings: slice as str_slice
 load std.io: print, eprint
 load .config: Config, load_config, is_private_target
@@ -265,13 +265,13 @@ public class Proxy {
         // ── VER+NMETHODS
         if st == 1 {
             if n < 2 { return }
-            if byte_at(acc, 0) != 5u8 { this.drop_client(ci); return }
-            set nm = cast(byte_at(acc, 1), "int64")
+            if bv[0] != 5u8 { this.drop_client(ci); return }
+            set nm = cast(bv[1], "int64")
             if nm < 1 || nm > 255 { this.drop_client(ci); return }
             if n < 2 + nm { return }
             set has_up = false
             for i in 2..2 + nm {
-                if byte_at(acc, i) == 2u8 { rewrite has_up = true }
+                if bv[i] == 2u8 { rewrite has_up = true }
             }
             if !has_up {
                 print("[ypwee][trace] no userpass method\n")
@@ -290,13 +290,25 @@ public class Proxy {
         if st == 3 {
             print("[ypwee][trace] USERPASS branch enter\n")
             if n < 1 { return }
-            set ulen = cast(byte_at(acc, 0), "int64")
+            set ulen = cast(bv[0], "int64")
             if n < 1 + ulen + 1 { return }
-            set plen = cast(byte_at(acc, 1 + ulen), "int64")
+            set plen = cast(bv[1 + ulen], "int64")
             if n < 2 + ulen + plen { return }
             print("[ypwee][trace] ulen=" + i64_to_string(ulen) + " plen=" + i64_to_string(plen) + "\n")
-            set u: string = str_slice(acc, 1, 1 + ulen)
-            set p: string = str_slice(acc, 2 + ulen, 2 + ulen + plen)
+            set ub: bytes = cast("", "bytes")
+            set jj: int64 = 1
+            while jj < 1 + ulen {
+                ub.push(bv[jj])
+                rewrite jj += 1
+            }
+            set pb: bytes = cast("", "bytes")
+            rewrite jj = 2 + ulen
+            while jj < 2 + ulen + plen {
+                pb.push(bv[jj])
+                rewrite jj += 1
+            }
+            set u: string = cast(ub, "string")
+            set p: string = cast(pb, "string")
             set full: string = u + ":" + p
             set ok = false
             for k in 0..this.cfg.users.len() {
@@ -315,30 +327,36 @@ public class Proxy {
         // ── REQUEST
         if st == 5 {
             if n < 5 { return }
-            set atyp = cast(byte_at(acc, 3), "int64")
+            set atyp = cast(bv[3], "int64")
             set need = 0
             set host: string = ""
             if atyp == 1 {
                 rewrite need = 10
                 if n < 10 { return }
-                rewrite host = i64_to_string(cast(byte_at(acc, 4), "int64")) + "." +
-                    i64_to_string(cast(byte_at(acc, 5), "int64")) + "." +
-                    i64_to_string(cast(byte_at(acc, 6), "int64")) + "." +
-                    i64_to_string(cast(byte_at(acc, 7), "int64"))
+                rewrite host = i64_to_string(cast(bv[4], "int64")) + "." +
+                    i64_to_string(cast(bv[5], "int64")) + "." +
+                    i64_to_string(cast(bv[6], "int64")) + "." +
+                    i64_to_string(cast(bv[7], "int64"))
             }
             if atyp == 3 {
-                set dlen = cast(byte_at(acc, 4), "int64")
+                set dlen = cast(bv[4], "int64")
                 rewrite need = 7 + dlen
                 if n < 5 + dlen + 2 { return }
-                rewrite host = slice(acc, 5, 5 + dlen)
+                set hb: bytes = cast("", "bytes")
+                set hz: int64 = 5
+                while hz < 5 + dlen {
+                    hb.push(bv[hz])
+                    rewrite hz += 1
+                }
+                rewrite host = cast(hb, "string")
             }
             if atyp == 4 {
                 rewrite need = 22
                 if n < 22 { return }
                 rewrite host = "v6-placeholder"
             }
-            set port = cast(byte_at(acc, need - 2), "int64") * 256 + cast(byte_at(acc, need - 1), "int64")
-            set cmd = cast(byte_at(acc, 1), "int64")
+            set port = cast(bv[need - 2], "int64") * 256 + cast(bv[need - 1], "int64")
+            set cmd = cast(bv[1], "int64")
             if cmd != 1 {
                 this.send_client(ci, socks5_reply(REP_NOT_SUPP))
                 this.drop_client(ci)
@@ -392,19 +410,13 @@ public class Proxy {
             return
         }
         set n: int64 = got
-        set acc_c: bytes = []
-        set j: int64 = 0
-        while j < got {
-            acc_c.push(bv[j])
-            rewrite j += 1
-        }
-        this.c_acc.set(i64_to_string(ci), cast(acc_c, "string"))
+        set b: uint8[] = buf
         this.rearm(ci)
         // ищем конец заголовков
         set end = -1
         set i: int64 = 0
         while i + 3 < n {
-            if cast(byte_at(acc, i), "int64") == 13 && cast(byte_at(acc, i + 1), "int64") == 10 && cast(byte_at(acc, i + 2), "int64") == 13 && cast(byte_at(acc, i + 3), "int64") == 10 {
+            if b[i] == 13 && b[i + 1] == 10 && b[i + 2] == 13 && b[i + 3] == 10 {
                 rewrite end = i
                 break
             }
@@ -417,12 +429,19 @@ public class Proxy {
         }
         if end < 0 { return }
         // метод — "CONNECT "
-        if n < 8 || cast(byte_at(acc, 0), "int64") != 67 || cast(byte_at(acc, 1), "int64") != 79 || cast(byte_at(acc, 2), "int64") != 78 || cast(byte_at(acc, 3), "int64") != 78 || cast(byte_at(acc, 4), "int64") != 69 || cast(byte_at(acc, 5), "int64") != 67 || cast(byte_at(acc, 6), "int64") != 84 || cast(byte_at(acc, 7), "int64") != 32 {
+        set acc_b: bytes = cast("", "bytes")
+        set j2: int64 = 0
+        while j2 < n {
+            acc_b.push(b[j2])
+            rewrite j2 += 1
+        }
+        set c_acc_str: string = cast(acc_b, "string")
+        if n < 8 || b[0] != 67u8 || b[1] != 79u8 || b[2] != 78u8 || b[3] != 78u8 || b[4] != 69u8 || b[5] != 67u8 || b[6] != 84u8 || b[7] != 32u8 {
             this.send_client_str(ci, "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n")
             this.drop_client(ci)
             return
         }
-        set topt = connect_target_s(ref acc)
+        set topt = connect_target_s(ref c_acc_str)
         if topt == null {
             this.send_client_str(ci, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
             this.drop_client(ci)
