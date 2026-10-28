@@ -180,7 +180,7 @@ public class Aes256Ctr {
 }
 
 // AES-256 single block encrypt
-public fun aes_encrypt_block_e(input16: uint8[], ref round_keys: uint8[]) -> bytes {
+public fun aes_encrypt_block_e(input16: uint8[], round_keys: uint8[]) -> bytes {
     set state: uint8[] = []
     set input16c: uint8[] = input16.cp()
 
@@ -189,7 +189,7 @@ public fun aes_encrypt_block_e(input16: uint8[], ref round_keys: uint8[]) -> byt
         state.push(input16c[i])
         rewrite i += 1
     }
-    add_round_key(ref ~state, ref round_keys, 0)
+    add_round_key(ref ~state, round_keys, 0)
     set round: int64 = 1
     while round < 14 {
         sub_bytes(ref ~state)
@@ -200,7 +200,7 @@ public fun aes_encrypt_block_e(input16: uint8[], ref round_keys: uint8[]) -> byt
     }
     sub_bytes(ref ~state)
     shift_rows(ref ~state)
-    add_round_key(ref ~state, ref round_keys, 14)
+    add_round_key(ref ~state, round_keys, 14)
     set out: bytes = cast("", "bytes")
     set i2: int64 = 0
     while i2 < 16 {
