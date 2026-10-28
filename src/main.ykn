@@ -250,14 +250,13 @@ public class Proxy {
                 return
             }
             this.c_idletick.set_i64(ci, this.tick)
-            rewrite this.c_acc[ci] = chunk
         } catch {
             print("[ypwee][trace] socks_read EXC (peer closed?)\n")
             this.drop_client(ci)
             return
         }
         set st: int64 = this.c_state.get_i64(ci) ?? 0
-        set acc: string = this.c_acc[ci]
+        set acc: string = chunk
         set n: int64 = cast(acc.len(), "int64")
 
         // ── VER+NMETHODS
@@ -279,7 +278,6 @@ public class Proxy {
             }
             print("[ypwee][trace] send method_reply(2)\n")
             this.send_client(ci, method_reply(2u8))
-            rewrite this.c_acc[ci] = ""
             this.c_state.set_i64(ci, 3)
             this.rearm(ci)
             return
@@ -297,7 +295,6 @@ public class Proxy {
             set p: string = string::from_raw_parts(cast(cast(b.as_ptr(), "int64") + 2 + ulen, "ptr<uint8>"), plen)
             set ok = this.store.check(u, p)
             this.send_client(ci, userpass_reply(ok))
-            rewrite this.c_acc[ci] = ""
             if !ok {
                 this.drop_client(ci)
                 return
@@ -382,12 +379,11 @@ public class Proxy {
                 return
             }
             this.c_idletick.set_i64(ci, this.tick)
-            rewrite this.c_acc[ci] = chunk
         } catch {
             this.drop_client(ci)
             return
         }
-        set acc: string = this.c_acc[ci]
+        set acc: string = chunk
         set b: bytes = cast(acc, "bytes")
         set n: int64 = cast(b.len(), "int64")
         this.rearm(ci)
