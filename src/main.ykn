@@ -257,20 +257,18 @@ public class Proxy {
         print("[ypwee][trace] post-read 2 st=" + i64_to_string(st) + "\n")
         set n: int64 = got
         print("[ypwee][trace] post-read 3 n=" + i64_to_string(n) + "\n")
-        set bv: bytes = buf[0..n]
-        print("[ypwee][trace] slice view done\n")
-        print("[ypwee][trace] slice ok\n")
+
 
         // ── VER+NMETHODS
         if st == 1 {
             if n < 2 { return }
-            if bv[0] != 5u8 { this.drop_client(ci); return }
-            set nm = cast(bv[1], "int64")
+            if buf[0] != 5u8 { this.drop_client(ci); return }
+            set nm = cast(buf[1], "int64")
             if nm < 1 || nm > 255 { this.drop_client(ci); return }
             if n < 2 + nm { return }
             set has_up = false
             for i in 2..2 + nm {
-                if bv[i] == 2u8 { rewrite has_up = true }
+                if buf[i] == 2u8 { rewrite has_up = true }
             }
             if !has_up {
                 print("[ypwee][trace] no userpass method\n")
@@ -289,9 +287,9 @@ public class Proxy {
         if st == 3 {
             print("[ypwee][trace] USERPASS branch enter\n")
             if n < 1 { return }
-            set ulen = cast(bv[0], "int64")
+            set ulen = cast(buf[0], "int64")
             if n < 1 + ulen + 1 { return }
-            set plen = cast(bv[1 + ulen], "int64")
+            set plen = cast(buf[1 + ulen], "int64")
             if n < 2 + ulen + plen { return }
             print("[ypwee][trace] ulen=" + i64_to_string(ulen) + " plen=" + i64_to_string(plen) + "\n")
             set ok = store_check_lenprobe(ulen, plen)
@@ -308,30 +306,30 @@ public class Proxy {
         // ── REQUEST
         if st == 5 {
             if n < 5 { return }
-            set atyp = cast(bv[3], "int64")
+            set atyp = cast(buf[3], "int64")
             set need = 0
             set host: string = ""
             if atyp == 1 {
                 rewrite need = 10
                 if n < 10 { return }
-                rewrite host = i64_to_string(cast(bv[4], "int64")) + "." +
-                    i64_to_string(cast(bv[5], "int64")) + "." +
-                    i64_to_string(cast(bv[6], "int64")) + "." +
-                    i64_to_string(cast(bv[7], "int64"))
+                rewrite host = i64_to_string(cast(buf[4], "int64")) + "." +
+                    i64_to_string(cast(buf[5], "int64")) + "." +
+                    i64_to_string(cast(buf[6], "int64")) + "." +
+                    i64_to_string(cast(buf[7], "int64"))
             }
             if atyp == 3 {
-                set dlen = cast(bv[4], "int64")
+                set dlen = cast(buf[4], "int64")
                 rewrite need = 7 + dlen
                 if n < 5 + dlen + 2 { return }
-                rewrite host = string::from_raw_parts(cast(cast(bv.as_ptr(), "int64") + 5, "ptr<uint8>"), dlen)
+                rewrite host = string::from_raw_parts(cast(cast(buf.as_ptr(), "int64") + 5, "ptr<uint8>"), dlen)
             }
             if atyp == 4 {
                 rewrite need = 22
                 if n < 22 { return }
                 rewrite host = "v6-placeholder"
             }
-            set port = cast(bv[need - 2], "int64") * 256 + cast(bv[need - 1], "int64")
-            set cmd = cast(bv[1], "int64")
+            set port = cast(buf[need - 2], "int64") * 256 + cast(buf[need - 1], "int64")
+            set cmd = cast(buf[1], "int64")
             if cmd != 1 {
                 this.send_client(ci, socks5_reply(REP_NOT_SUPP))
                 this.drop_client(ci)
