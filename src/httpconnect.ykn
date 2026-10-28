@@ -33,5 +33,6 @@ public fun connect_target_s(ref acc: string) -> string? {
     }
     if sp2 < 0 { rewrite sp2 = end }
     if sp2 <= sp1 + 1 { return null }
-    return slice(acc, sp1 + 1, sp2)
+    set s2: string = acc.cp()
+    return slice(s2, sp1 + 1, sp2)
 }
