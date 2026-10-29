@@ -36,10 +36,11 @@ public fun mtproto_parse_handshake_verify(handshake_s: string, secret_hex: strin
     }
     hmac_ctx.update(prefix)
     set mac: bytes = hmac_ctx.finish()
-    // handshake[48..56] vs mac[16..32]
+    // одноразовый cast → string, потом byte_at
+    set mac_s: string = cast(mac, "string")
     set k: int64 = 0
     while k < 16 {
-        if byte_at(handshake_s, 48 + k) != byte_at(cast(mac, "string"), 16 + k) {
+        if byte_at(handshake_s, 48 + k) != byte_at(mac_s, 16 + k) {
             return -1
         }
         rewrite k += 1
