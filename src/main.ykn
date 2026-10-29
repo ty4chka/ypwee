@@ -470,14 +470,12 @@ public class Proxy {
                 return
             }
             set secret_hex: string = this.cfg.mtproto_secret
-            set sec_bytes: bytes = secret_to_bytes(secret_hex)
-            set sec_bytes_c: bytes = sec_bytes.cp()
-            set dc_id: int64 = mtproto_parse_handshake_verify(chunk, sec_bytes_c)
+            set dc_id: int64 = mtproto_parse_handshake_verify(chunk, secret_hex)
             if dc_id < 0 {
                 this.drop_client(ci)
                 return
             }
-            set proof: bytes = mtproto_server_proof(chunk, sec_bytes)
+            set proof: bytes = mtproto_server_proof(chunk, secret_hex)
             this.send_client(ci, proof)
             set target: string = dc_addr(dc_id)
             sus {
