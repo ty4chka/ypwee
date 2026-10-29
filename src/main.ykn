@@ -8,7 +8,7 @@ load .sniff: is_socks5_hello, sniffer
 load .socks5: method_reply, userpass_reply, socks5_reply, UserStore
 load .httpconnect: connect_target_s
 load .buffer: push_bytes_string
-load .mtproto: mtproto_parse_handshake_verify, mtproto_server_proof, dc_addr, secret_to_bytes
+load .mtproto: mtproto_parse_handshake_verify, mtproto_server_proof, dc_addr
 
 static HS_SOCKS_VER: uint64 = 1u64
 static HS_SOCKS_METHODS: uint64 = 2u64

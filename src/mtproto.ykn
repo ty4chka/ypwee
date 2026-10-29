@@ -1,83 +1,45 @@
 // ypwee — MTProto fake-TLS (M2/M3) — mtg v2 compatible
-//
-// Client → proxy:  TLS 1.3 ClientHello с x25519 в key_share и HMAC-SHA256(secret) auth
-// Proxy → DC:      AES-256-CTR obfuscated2 transport
-//
-// Референсы:
-//   mtg v2: https://github.com/9seconds/mtg (Ivan Begtin)
-//   mtproto.zig: https://github.com/sleep3r/mtproto.zig
-//   Fork: https://github.com/valnesfjord/tgproxy
-//
-// Формат FakeTLS ClientHello (64 bytes) — mtg-compatible:
-//   [0..8]    0x0000000000000000 (8 bytes zero auth_key_id — placeholder)
-//   [8..12]   random 4 bytes (session_id LSB)
-//   [12..56]  random 44 bytes (obfuscated / padding)
-//   [56..60]  dc_id (big-endian u16 + version u16)
-//   [60..64]  0x00000000 (reserved)
-//
-// HMAC-SHA256(secret, bytes[0..56]) → last 16 bytes stored in [48..56]:
-//   как padding-gap для FakeTLS authentication challenge.
-//
-// Сервер после получения производит verify: HMAC-SHA256(secret, bytes[0..56])[16..32] == bytes[48..56]
-// Это известная mtg-compatible MTProto FakeTLS схема.
+// Все данные — string (Copy type). bytes только через cast при hkdf.
+// Работает без E0505 потому что string — Copy type.
 
-load std.crypto: hmac_sha256
+load std.crypto: hkdf_extract, hkdf_expand
 load std.crypto.hmac: hmac_sha256_init
 load std.strings: byte_at
 load std.strings: slice as str_slice
 
-public fun secret_to_bytes(secret_hex: string) -> bytes {
-    set out: bytes = cast("", "bytes")
-    set i: int64 = 0
-    while i + 1 < secret_hex.len() {
-        set h: int64 = hex_val(byte_at(secret_hex, i))
-        set l: int64 = hex_val(byte_at(secret_hex, i + 1))
-        out.push(cast(h * 16 + l, "uint8"))
-        rewrite i += 2
-    }
-    return out
-}
+// hex string → bytes через std hash.common bytes_to_hex/hex_to_bytes
+load std.hash.common: hex_to_bytes, bytes_to_hex
 
-public fun hex_val(c: uint8) -> int64 {
-    if c >= 48u8 && c <= 57u8 { return cast(c - 48u8, "int64") }
-    if c >= 97u8 && c <= 102u8 { return cast(c - 97u8, "int64") + 10 }
-    if c >= 65u8 && c <= 70u8 { return cast(c - 65u8, "int64") + 10 }
-    return 0
-}
+// Публичный интерфейс:
+//   mtproto_parse_handshake_verify(handshake_s: string, secret_hex: string) -> int64
+//   mtproto_server_proof(handshake_s: string, secret_hex: string) -> bytes
+//   dc_addr(dc_id: int64) -> string
 
-// Генерирует ответ сервера: HMAC proof (32 bytes), отдаётся клиенту
-//作为 FakeTLS ServerHello (TLS 1.3 style)
-public fun mtproto_parse_handshake_verify(handshake: string, secret: bytes) -> int64 {
-    if handshake.len() < 64 { return -1 }
+public fun mtproto_parse_handshake_verify(handshake_s: string, secret_hex: string) -> int64 {
+    if handshake_s.len() < 64 { return -1 }
     // dc_id
-    set dc_b0: int64 = cast(byte_at(handshake, 56), "int64")
-    set dc_b1: int64 = cast(byte_at(handshake, 57), "int64")
+    set dc_b0: int64 = cast(byte_at(handshake_s, 56), "int64")
+    set dc_b1: int64 = cast(byte_at(handshake_s, 57), "int64")
     set dc_id: int64 = 0
     if dc_b0 >= 128 { rewrite dc_id = (dc_b0 - 128) * 256 + dc_b1 } else {
         rewrite dc_id = dc_b0 * 256 + dc_b1
     }
     if dc_id < 1 || dc_id > 5 { return -1 }
-    // FakeTLS challenge: HMAC-SHA256(secret, [0..56])[16..32] == [48..56]
+    // FakeTLS challenge: HMAC-SHA256(secret_hex → bytes, [0..56] handshake) [16..32] == bytes[48..56]
+    set secret_b: bytes = hex_to_bytes(secret_hex)
+    set hmac_ctx = hmac_sha256_init(ref secret_b)
     set prefix: bytes = cast("", "bytes")
     set i: int64 = 0
     while i < 56 {
-        prefix.push(byte_at(handshake, i))
+        prefix.push(byte_at(handshake_s, i))
         rewrite i += 1
     }
-    set local_sec: bytes = cast("", "bytes")
-    set kp: int64 = 0
-    while kp < secret.len() {
-        local_sec.push(byte_at(secret, kp))
-        rewrite kp += 1
-    }
-    set hmac_ctx = hmac_sha256_init(ref local_sec)
     hmac_ctx.update(prefix)
     set mac: bytes = hmac_ctx.finish()
-    set mac_s: string = cast(mac, "string")
-    set hs_s: string = handshake
+    // handshake[48..56] vs mac[16..32]
     set k: int64 = 0
     while k < 16 {
-        if byte_at(hs_s, 48 + k) != byte_at(mac_s, 16 + k) {
+        if byte_at(handshake_s, 48 + k) != byte_at(cast(mac, "string"), 16 + k) {
             return -1
         }
         rewrite k += 1
@@ -86,32 +48,26 @@ public fun mtproto_parse_handshake_verify(handshake: string, secret: bytes) -> i
 }
 
 // Возвращает 32-байтный HMAC-SHA256 proof для ServerHello
-public fun mtproto_server_proof(handshake: string, secret: bytes) -> bytes {
+public fun mtproto_server_proof(handshake_s: string, secret_hex: string) -> bytes {
+    set secret_b: bytes = hex_to_bytes(secret_hex)
     set prefix: bytes = cast("", "bytes")
     set i: int64 = 0
     while i < 64 {
-        prefix.push(byte_at(handshake, i))
+        prefix.push(byte_at(handshake_s, i))
         rewrite i += 1
     }
-    set local_sec: bytes = cast("", "bytes")
-    set kp2: int64 = 0
-    while kp2 < secret.len() {
-        local_sec.push(byte_at(secret, kp2))
-        rewrite kp2 += 1
-    }
-    set hmac_ctx = hmac_sha256_init(ref local_sec)
+    set hmac_ctx = hmac_sha256_init(ref secret_b)
     hmac_ctx.update(prefix)
     return hmac_ctx.finish()
 }
 
-// Telegram Production DC table (mtg / mtproto.zig compatible)
+// Telegram Production DC table
 public fun dc_addr(dc_id: int64) -> string {
     if dc_id == 1 { return "149.154.175.53:443" }
     if dc_id == 2 { return "149.154.167.51:443" }
     if dc_id == 3 { return "149.154.175.100:443" }
     if dc_id == 4 { return "149.154.167.91:443" }
     if dc_id == 5 { return "91.108.56.130:443" }
-    // IPv6 DC
     if dc_id == 6 { return "[2001:b28:f23d:f001::a]:443" }
     if dc_id == 7 { return "[2001:67c:4e8:f004::9]:443" }
     if dc_id == 8 { return "[2001:b28:f23f:f005::a]:443" }
