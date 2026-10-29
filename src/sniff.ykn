@@ -1,19 +1,5 @@
 // ypwee — protocol sniffing by first bytes
-load std.strings: byte_at
-
-public fun sniffer(data: bytes) -> int64 {
-    if data.len() < 1 { return 0 }
-    // Convert once: bytes → string, после этого reads через byte_at(ds)
-    set ds: string = cast(data, "string")
-    set b0: uint8 = byte_at(ds, 0)
-    if b0 == 22u8 { return 3 }     // TLS ClientHello → MTProto
-    if b0 == 5u8 { return 1 }      // SOCKS5
-    if b0 >= 65u8 && b0 <= 122u8 { return 2 }  // HTTP
-    return 0
-}
-
 public fun is_socks5_hello(data: bytes) -> bool {
     if data.len() < 2 { return false }
-    set ds: string = cast(data, "string")
-    return byte_at(ds, 0) == 5u8
+    return data[0] == 5u8
 }

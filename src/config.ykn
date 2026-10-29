@@ -13,8 +13,6 @@ public class Config {
     hs_timeout_s: int64
     idle_timeout_s: int64
     max_conns: int64
-    mtproto_secret: string     // hex 32 chars = 16 bytes (mtg-format)
-    mtproto_enabled: bool
 
     fun init() {
         rewrite this.mode = "all"
@@ -60,8 +58,6 @@ public class Config {
         if key == "idle-timeout-ms" { rewrite this.idle_timeout_s = cast(val, "int64") / 1000 }
         if key == "new-conns-per-sec" { rewrite this.rate_per_sec = cast(val, "int64") }
         if key == "allow-all" { if val == "true" { this.allow_targets.push("*") } }
-        if key == "mtproto-secret" { rewrite this.mtproto_secret = val }
-        if key == "mtproto" { if val == "true" { rewrite this.mtproto_enabled = true } }
     }
 
     fun target_allowed(host: string) -> bool {

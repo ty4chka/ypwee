@@ -4,11 +4,10 @@ load std.strings: byte_at
 load std.strings: slice as str_slice
 load std.io: print, eprint
 load .config: Config, load_config, is_private_target
-load .sniff: is_socks5_hello, sniffer
+load .sniff: is_socks5_hello
 load .socks5: method_reply, userpass_reply, socks5_reply, UserStore
 load .httpconnect: connect_target_s
 load .buffer: push_bytes_string
-load .mtproto: mtproto_parse_handshake_verify, mtproto_server_proof, dc_addr
 
 static HS_SOCKS_VER: uint64 = 1u64
 static HS_SOCKS_METHODS: uint64 = 2u64
@@ -133,10 +132,6 @@ public class Proxy {
         rewrite this.next_key += 1
         this.poller.add_stream(ref c, POLL_READABLE, cast(this.next_key, "uint64"))
         this.push_client(this.next_key, cast(c.id, "int64"), is_socks)
-        // listener — тоже oneshot polling event
-        this.poller.remove_listener(ref listener)
-        set lkey: uint64 = if is_socks { KEY_SOCKS_L } else { KEY_HTTP_L }
-        this.poller.add_listener(ref listener, POLL_READABLE, lkey)
     }
 
     fun push_client(k: int64, id: int64, is_socks: bool) {
@@ -238,9 +233,7 @@ public class Proxy {
             return
         }
         set issocks: int64 = this.c_sock.get_i64(ci) ?? 0
-        if issocks == 2 {
-            this.mtproto_read(ci)
-        } elif issocks == 1 {
+        if issocks == 1 {
             this.socks_read(ci)
         } else {
             this.http_read(ci)
@@ -423,15 +416,12 @@ public class Proxy {
                 return -1
             }
             set target: string = host + ":" + i64_to_string(port)
-            eprint("[ypwee] CONNECT -> " + target + "\n")
             set connected: int64 = 0
             sus {
                 set up = tcp_connect(target, this.cfg.hs_timeout_s * 1000)
                 up.set_nonblocking(true)
                 this.send_client(ci, socks5_reply(0u8))
                 this.start_relay(ci, up)
-                this.rearm(ci)
-                eprint("[ypwee] relay started\n")
                 rewrite connected = 1
             } catch {
                 rewrite connected = 0
@@ -450,44 +440,6 @@ public class Proxy {
         // неизвестное состояние
         this.drop_client(ci)
         return -1
-    }
-
-    fun mtproto_read(ci: int64) {
-        set idopt = this.c_id.get_i64(ci)
-        if idopt == null { return }
-        set chunk: string = ""
-        sus {
-            set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite chunk = cs.read(4096)
-        } catch {
-            this.drop_client(ci)
-            return
-        }
-        set st: int64 = this.c_state.get_i64(ci) ?? 0
-        if st == 50 || st == 51 {
-            if chunk.len() < 64 {
-                this.rearm(ci)
-                return
-            }
-            set secret_hex: string = this.cfg.mtproto_secret
-            set dc_id: int64 = mtproto_parse_handshake_verify(chunk, secret_hex)
-            if dc_id < 0 {
-                this.drop_client(ci)
-                return
-            }
-            set proof: bytes = mtproto_server_proof(chunk, secret_hex)
-            this.send_client(ci, proof)
-            set target: string = dc_addr(dc_id)
-            sus {
-                set up = tcp_connect(target, this.cfg.hs_timeout_s * 1000)
-                up.set_nonblocking(true)
-                this.start_relay(ci, up)
-            } catch {
-                this.drop_client(ci)
-            }
-            return
-        }
-        this.rearm(ci)
     }
 
     fun send_client(ci: int64, data: bytes) {
@@ -743,4 +695,3 @@ public fun str_slice_host(bv: uint8[], from: int64, to: int64) -> string {
     }
     return cast(b2, "string")
 }
-
