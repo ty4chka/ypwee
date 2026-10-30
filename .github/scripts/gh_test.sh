@@ -2,25 +2,24 @@
 set -x
 cd "$(dirname "$0")/../.."
 
-# 1. LLVM 22 (обязательно для llvm-sys Yukino)
-wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -
-echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-22 main" > /etc/apt/sources.list.d/llvm22.list
-apt-get update -qq
-apt-get install -y -qq llvm-22-dev libpolly-22-dev libzstd-dev zlib1g-dev
-export LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
-ln -sf /usr/lib/llvm-22/bin/llvm-ar /usr/local/bin/llvm-ar
-yukic --version 2>&1 || true
+# 1. LLVM 22 (обязательно для llvm-sys Yukino) — runner умеет sudo
+sudo wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-22 main" | sudo tee /etc/apt/sources.list.d/llvm22.list
+sudo apt-get update -qq
+sudo apt-get install -y -qq llvm-22-dev libpolly-22-dev libzstd-dev zlib1g-dev
+echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> "$GITHUB_ENV"
+sudo ln -sf /usr/lib/llvm-22/bin/llvm-ar /usr/local/bin/llvm-ar
 
-# 2. Yukino toolchain (собираем один раз, кэшируем)
+# 2. Yukino toolchain
 if [ ! -x /tmp/yukino/target/release/yukic ]; then
   git clone --depth 1 https://github.com/yukitsuri/yukino /tmp/yukino
   (cd /tmp/yukino && cargo build --release 2>&1 | tail -5)
 fi
-cp /tmp/yukino/target/release/yukic /tmp/yukino/target/release/yukino /usr/local/bin/
+sudo cp /tmp/yukino/target/release/yukic /tmp/yukino/target/release/yukino /usr/local/bin/
 yukic --version
 
 # 3. Unit tests
-yukic --test --entry src/main.ykn -o test_ci.bin 2>&1 | tail -6
+yukic --test --entry src/main.ykn -o test_ci.bin 2>&1 | tail -3
 chmod +x test_ci.bin
 ./test_ci.bin 2>&1 | tail -6
 
