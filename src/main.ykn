@@ -886,6 +886,7 @@ public class Proxy {
         eprint("[ypwee] mt: hello bytes " + i64_to_string(cast(acc.len(), "int64")) + "\n")
         set reclen: int64 = cast(byte_at(acc, 3), "int64") * 256 + cast(byte_at(acc, 4), "int64")
         set total: int64 = 5 + reclen
+        eprint("[ypwee] mt: reclen=" + i64_to_string(reclen) + " rest=" + i64_to_string(cast(acc.len() - total, "int64")) + "\n")
         if acc.len() < total { return }
         set ch: bytes = cast(slice(acc, 0, total), "bytes")
         set secret: string = this.cfg.mtproto_secret
