@@ -840,9 +840,10 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        eprint("[ypwee] mt: got " + i64_to_string(got) + " bytes\n")
         this.mt_state_set(ci, acc)
         this.mt_step(ci)
+        // oneshot poller: перезаряжаем клиентский сокет после каждого чтения
+        this.rearm(ci)
     }
 
     fun mt_send_raw(ci: int64, data: bytes) -> bool {
