@@ -809,34 +809,37 @@ public class Proxy {
     }
 
     fun mt_read(ci: int64) {
-        eprint("[ypwee] mt: read event ci=" + i64_to_string(ci) + "\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
-        set rbuf: bytes = cast("", "bytes")
-        rbuf.reserve(16384)
+        set buf: uint8[] = []
+        buf.reserve(16384)
         set got: int64 = 0
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite got = cs.read_bytes(rbuf.as_ptr(), 16384)
+            rewrite got = cs.read_bytes(cast(buf.as_ptr(), "ptr<uint8>"), 16384)
         } catch {
             this.drop_client(ci)
             return
         }
-        eprint("[ypwee] mt: got " + i64_to_string(got) + " bytes\n")
         if got <= 0 {
             this.drop_client(ci)
             return
         }
         this.c_idletick.set_i64(ci, this.tick)
-        // append to mt_acc
+        // build string from buf[0..got]
+        set acc_b: bytes = cast("", "bytes")
+        set j2: int64 = 0
+        while j2 < got {
+            acc_b.push(buf[j2])
+            rewrite j2 += 1
+        }
+        set chunk: string = cast(acc_b, "string")
         set prev: string = this.mt_state_get(ci)
-        set chunk: string = cast(rbuf, "string")
         set acc: string = prev + chunk
         if acc.len() > MT_MAX_ACC {
             this.drop_client(ci)
             return
         }
-        eprint("[ypwee] mt: acc=" + i64_to_string(cast(acc.len(), "int64")) + "\n")
         this.mt_state_set(ci, acc)
         this.mt_step(ci)
     }
