@@ -22,12 +22,12 @@ sudo cp /tmp/yukino/target/release/yukic /tmp/yukino/target/release/yukino /usr/
 yukic --version
 
 # 3. Unit tests
-yukic --test --entry src/main.ykn -o test_ci.bin 2>&1 | tail -3
+yukic --test --entry src/main.ykn -o test_ci.bin --error-limit=0 2>&1 | tail -20
 chmod +x test_ci.bin
 ./test_ci.bin 2>&1 | tail -6
 
 # 4. Build server
-yukic --release --entry src/main.ykn -o ypwee-ci.bin 2>&1 | tail -2
+yukic --release --entry src/main.ykn -o ypwee-ci.bin --error-limit=0 2>&1 | tail -20
 ls -la ypwee-ci.bin
 
 # 5. e2e: server + python FakeTLS client
