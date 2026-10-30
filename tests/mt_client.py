@@ -74,6 +74,8 @@ def obfuscated2_header(secret_key: bytes, dc: int):
     enc_iv = rframe[40:56]
     return frame, dec_key, dec_iv, enc_key, enc_iv
 
+from Crypto.Cipher import AES as _AES
+
 class Ctr:
     def __init__(self, key, iv):
         self.key = key
@@ -82,7 +84,7 @@ class Ctr:
         self.pos = 0
     def _refill(self):
         blk = self.ctr.to_bytes(16, "big")
-        ecb = AES.new(self.key, AES.MODE_ECB)
+        ecb = _AES.new(self.key, _AES.MODE_ECB)
         self.ks += ecb.encrypt(blk)
         self.ctr = (self.ctr + 1) % (1 << 128)
     def apply(self, data):
