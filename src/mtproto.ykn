@@ -262,7 +262,9 @@ public fun mt_server_welcome(client_random: bytes, session_id: bytes, secret_hex
         out.push(byte_at(n_s, i))
         rewrite i += 1
     }
-    // patch server random at offset 11
+    // tdlib wait_hello_response: HMAC over client_random || ServerHello RECORD ONLY
+    // (with server random zeroed). CCS and noise records are NOT in the mac input.
+    set hello_len: int64 = 5 + cast(byte_at(out, 3), "int64") * 256 + cast(byte_at(out, 4), "int64")
     set out_s: string = cast(out, "string")
     set mac_input: bytes = cast("", "bytes")
     set cr_s: string = cast(client_random, "string")
@@ -272,13 +274,12 @@ public fun mt_server_welcome(client_random: bytes, session_id: bytes, secret_hex
         rewrite i += 1
     }
     rewrite i = 0
-    while i < 11 {
-        mac_input.push(byte_at(out_s, i))
-        rewrite i += 1
-    }
-    rewrite i = 43
-    while i < out_s.len() {
-        mac_input.push(byte_at(out_s, i))
+    while i < hello_len {
+        if i >= 11 && i < 43 {
+            mac_input.push(0u8)
+        } else {
+            mac_input.push(byte_at(out_s, i))
+        }
         rewrite i += 1
     }
     set mac: bytes = hmac_sha256(ref key, ref mac_input)
