@@ -824,7 +824,6 @@ public class Proxy {
             return
         }
         this.c_idletick.set_i64(ci, this.tick)
-        eprint("[ypwee] mt: chunk.len=" + i64_to_string(cast(chunk.len(), "int64")) + " b0=" + i64_to_string(cast(chunk[0], "int64")) + " b1=" + i64_to_string(cast(chunk[1], "int64")) + " b2=" + i64_to_string(cast(chunk[2], "int64")) + " b3=" + i64_to_string(cast(chunk[3], "int64")) + " b4=" + i64_to_string(cast(chunk[4], "int64")) + "\n")
         set prev: string = this.mt_state_get(ci)
         set acc: string = prev + chunk
         if acc.len() > MT_MAX_ACC {
