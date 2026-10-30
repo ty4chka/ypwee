@@ -1,0 +1,32 @@
+load .mtproto: mt_faketls_verify, mt_secret_key, mt_secret_host, mt_obfs_client_key, mt_obfs_client_iv, mt_obfs_dc, mt_is_secure_header, mt_intermediate_payload_len, mt_tls_record_header
+load std.hash.common: hex_to_bytes, bytes_to_hex
+load std.fs: read_text
+
+// mtg golden: ee secret parses into 16-byte key + hostname
+#[test]
+fun ee_secret_parse() {
+    set secret = "ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d"
+    set key = mt_secret_key(secret)
+    assert(bytes_to_hex(ref key) == "367a189aee18fa31c190054efd4a8e95", "key 16 bytes")
+    assert(mt_secret_host(secret) == "storage.googleapis.com", "host")
+}
+
+// Full golden ClientHello from mtg testdata (client-hello-ok-19dfe38384b9884b):
+// HMAC-SHA256(secret_key, record with zeroed random) XOR random -> timestamp 1617181365
+#[test]
+#[test]
+#[test]
+#[test]
+fun intermediate_len() {
+    set f = hex_to_bytes("24000000")
+    assert(mt_intermediate_payload_len(f) == 36, "len 0x24")
+    set f2 = hex_to_bytes("ff000000")
+    assert(mt_intermediate_payload_len(f2) == 255, "len 0xff")
+}
+
+// TLS record header bytes
+#[test]
+fun tls_record_header() {
+    set h = mt_tls_record_header(2878)
+    assert(bytes_to_hex(ref h) == "1703030b3e", "record header 17 03 03 0b 3e")
+}

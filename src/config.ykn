@@ -13,6 +13,11 @@ public class Config {
     hs_timeout_s: int64
     idle_timeout_s: int64
     max_conns: int64
+    mtproto_secret: string
+    mtproto_port: string
+    mtproto_noise_mean: int64
+    mtproto_noise_jitter: int64
+    mtproto_handshake_timeout_ms: int64
 
     fun init() {
         rewrite this.mode = "all"
@@ -21,10 +26,11 @@ public class Config {
         rewrite this.users = []
         rewrite this.allow_targets = []
         rewrite this.allow_private_targets = false
-    rewrite this.rate_per_sec = 50
-    rewrite this.hs_timeout_s = 30
-    rewrite this.idle_timeout_s = 300
-    rewrite this.max_conns = 1024
+        rewrite this.rate_per_sec = 50
+        rewrite this.hs_timeout_s = 30
+        rewrite this.idle_timeout_s = 300
+        rewrite this.max_conns = 1024
+        this.init_mtproto()
     }
 
     fun apply(line: string) {
@@ -58,6 +64,7 @@ public class Config {
         if key == "idle-timeout-ms" { rewrite this.idle_timeout_s = cast(val, "int64") / 1000 }
         if key == "new-conns-per-sec" { rewrite this.rate_per_sec = cast(val, "int64") }
         if key == "allow-all" { if val == "true" { this.allow_targets.push("*") } }
+        this.apply_mtproto(key, val)
     }
 
     fun target_allowed(host: string) -> bool {
@@ -76,6 +83,22 @@ public class Config {
             }
         }
         return false
+    }
+
+    fun init_mtproto() {
+        rewrite this.mtproto_secret = ""
+        rewrite this.mtproto_port = "127.0.0.1:443"
+        rewrite this.mtproto_noise_mean = 3000
+        rewrite this.mtproto_noise_jitter = 500
+        rewrite this.mtproto_handshake_timeout_ms = 10000
+    }
+
+    fun apply_mtproto(key: string, val: string) {
+        if key == "mtproto-secret" { rewrite this.mtproto_secret = val }
+        if key == "mtproto-port" { rewrite this.mtproto_port = val }
+        if key == "mtproto-noise-mean" { rewrite this.mtproto_noise_mean = cast(val, "int64") }
+        if key == "mtproto-noise-jitter" { rewrite this.mtproto_noise_jitter = cast(val, "int64") }
+        if key == "mtproto-handshake-timeout-ms" { rewrite this.mtproto_handshake_timeout_ms = cast(val, "int64") }
     }
 }
 
@@ -174,3 +197,4 @@ public fun ypwee_trim2(line: string, from: int64, to: int64) -> string {
     set p3 = cast(p2, "int64") + s
     return string::from_raw_parts(cast(p3, "ptr<uint8>"), e - s)
 }
+

@@ -1,76 +1,312 @@
-// ypwee — MTProto fake-TLS (M2/M3) — mtg v2 compatible
-// Все данные — string (Copy type). bytes только через cast при hkdf.
-// Работает без E0505 потому что string — Copy type.
+// ypwee MTProto transport primitives.
+// Wire format follows tdlib/td and 9seconds/mtg v2.2.8.
+load std.fs.archives.pass: aes_ctr
+load std.crypto: hmac_sha256, random_bytes
+load std.hash.sha2: sha256, sha256_init, sha256_update, sha256_finish
+load std.hash.common: hex_to_bytes
+load std.strings: byte_at, slice
 
-load std.crypto: hkdf_extract, hkdf_expand
-load std.crypto.hmac: hmac_sha256_init
-load std.strings: byte_at
-load std.strings: slice as str_slice
+static TLS_RANDOM_OFF: int64 = 11
+static MT_HEADER_LEN: int64 = 64
+static MT_KEY_OFF: int64 = 8
+static MT_IV_OFF: int64 = 40
 
-// hex string → bytes через std hash.common bytes_to_hex/hex_to_bytes
-load std.hash.common: hex_to_bytes, bytes_to_hex
+public fun mt_secret_key(secret_hex: string) -> bytes {
+    if secret_hex.len() < 34 { return cast("", "bytes") }
+    return hex_to_bytes(slice(secret_hex, 2, 34))
+}
 
-// Публичный интерфейс:
-//   mtproto_parse_handshake_verify(handshake_s: string, secret_hex: string) -> int64
-//   mtproto_server_proof(handshake_s: string, secret_hex: string) -> bytes
-//   dc_addr(dc_id: int64) -> string
+public fun mt_secret_host(secret_hex: string) -> string {
+    if secret_hex.len() <= 34 { return "" }
+    set raw: bytes = hex_to_bytes(slice(secret_hex, 34, cast(secret_hex.len(), "int64")))
+    return cast(raw, "string")
+}
 
-public fun mtproto_parse_handshake_verify(handshake_s: string, secret_hex: string) -> int64 {
-    if handshake_s.len() < 64 { return -1 }
-    // dc_id
-    set dc_b0: int64 = cast(byte_at(handshake_s, 56), "int64")
-    set dc_b1: int64 = cast(byte_at(handshake_s, 57), "int64")
-    set dc_id: int64 = 0
-    if dc_b0 >= 128 { rewrite dc_id = (dc_b0 - 128) * 256 + dc_b1 } else {
-        rewrite dc_id = dc_b0 * 256 + dc_b1
-    }
-    if dc_id < 1 || dc_id > 5 { return -1 }
-    // FakeTLS challenge: HMAC-SHA256(secret_hex → bytes, [0..56] handshake) [16..32] == bytes[48..56]
-    set secret_b: bytes = hex_to_bytes(secret_hex)
-    set hmac_ctx = hmac_sha256_init(ref secret_b)
-    set prefix: bytes = cast("", "bytes")
-    set i: int64 = 0
-    while i < 56 {
-        prefix.push(byte_at(handshake_s, i))
+fun copy_string_bytes(data_s: string, from: int64, to: int64) -> bytes {
+    set out: bytes = cast("", "bytes")
+    out.reserve(to - from)
+    set i: int64 = from
+    while i < to {
+        out.push(byte_at(data_s, i))
         rewrite i += 1
     }
-    hmac_ctx.update(prefix)
-    set mac: bytes = hmac_ctx.finish()
-    // одноразовый cast → string, потом byte_at
-    set mac_s: string = cast(mac, "string")
+    return out
+}
+
+fun copy_xor(a: bytes, b: bytes) -> bytes {
+    set out: bytes = cast("", "bytes")
+    out.reserve(a.len())
+    set a_cp: bytes = a.cp()
+    set b_cp: bytes = b.cp()
+    set a_s: string = cast(a_cp, "string")
+    set b_s: string = cast(b_cp, "string")
+    set i: int64 = 0
+    set an: int64 = cast(a_s.len(), "int64")
+    while i < an {
+        out.push(cast(cast(byte_at(a_s, i), "int64") ^ cast(byte_at(b_s, i), "int64"), "uint8"))
+        rewrite i += 1
+    }
+    return out
+}
+
+public fun mt_faketls_verify(client: bytes, secret_hex: string, hostname: string) -> bool {
+    if client.len() < 5 { return false }
+    set client_cp: bytes = client.cp()
+    set client_s: string = cast(client_cp, "string")
+    if byte_at(client_s, 0) != 22u8 || byte_at(client_s, 1) != 3u8 || byte_at(client_s, 2) != 1u8 { return false }
+    if client.len() < TLS_RANDOM_OFF + 32 { return false }
+    set key: bytes = mt_secret_key(secret_hex)
+    if key.len() != 16 { return false }
+    set zeroed: bytes = copy_string_bytes(client_s, 0, client_s.len())
+    set i: int64 = 0
+    while i < 32 {
+        rewrite zeroed[TLS_RANDOM_OFF + i] = 0u8
+        rewrite i += 1
+    }
+    set mac: bytes = hmac_sha256(ref key, ref zeroed)
+    set got: bytes = copy_string_bytes(client_s, TLS_RANDOM_OFF, TLS_RANDOM_OFF + 32)
+    set check: bytes = copy_xor(mac, got)
+    set check_cp: bytes = check.cp()
+    set check_s: string = cast(check_cp, "string")
+    set j: int64 = 0
+    while j < 28 {
+        if byte_at(check_s, j) != 0u8 { return false }
+        rewrite j += 1
+    }
+    if hostname.len() == 0 { return false }
+    set hs: string = client_s
+    if hs.len() < hostname.len() { return false }
+    set p: int64 = 0
+    while p + hostname.len() <= hs.len() {
+        if slice(hs, p, p + hostname.len()) == hostname { return true }
+        rewrite p += 1
+    }
+    return false
+}
+
+public fun mt_obfs_client_key(frame: bytes, secret_hex: string) -> bytes {
+    set frame_cp0: bytes = frame.cp()
+    set frame_s: string = cast(frame_cp0, "string")
+    if frame_s.len() < MT_HEADER_LEN { return cast("", "bytes") }
+    set material: bytes = copy_string_bytes(frame_s, MT_KEY_OFF, MT_KEY_OFF + 32)
+    set secret: bytes = mt_secret_key(secret_hex)
+    material.reserve(secret.len())
+    set secret_s: string = cast(secret, "string")
+    set i: int64 = 0
+    set secret_n: int64 = cast(secret_s.len(), "int64")
+    while i < secret_n {
+        material.push(byte_at(secret_s, i))
+        rewrite i += 1
+    }
+    return sha256(ref material)
+}
+
+public fun mt_obfs_client_iv(frame: bytes) -> bytes {
+    set frame_cp0: bytes = frame.cp()
+    set frame_s: string = cast(frame_cp0, "string")
+    if frame_s.len() < MT_HEADER_LEN { return cast("", "bytes") }
+    return copy_string_bytes(frame_s, MT_IV_OFF, MT_IV_OFF + 16)
+}
+
+public fun mt_obfs_dc(frame: bytes) -> int64 {
+    if frame.len() < MT_HEADER_LEN { return 0 }
+    set frame_cp0: bytes = frame.cp()
+    set frame_s: string = cast(frame_cp0, "string")
+    set lo: int64 = cast(byte_at(frame_s, 60), "int64")
+    set hi: int64 = cast(byte_at(frame_s, 61), "int64")
+    set dc: int64 = lo + hi * 256
+    if dc < 1 || dc > 5 { return 2 }
+    return dc
+}
+
+public fun mt_obfs_open_header(frame: bytes, secret_hex: string) -> bytes {
+    set frame_cp0: bytes = frame.cp()
+    set frame_s: string = cast(frame_cp0, "string")
+    if frame_s.len() != MT_HEADER_LEN { return cast("", "bytes") }
+    set material: bytes = copy_string_bytes(frame_s, MT_KEY_OFF, MT_KEY_OFF + 32)
+    set secret: bytes = mt_secret_key(secret_hex)
+    set secret_s: string = cast(secret, "string")
+    material.reserve(secret_s.len())
+    set i: int64 = 0
+    while i < secret_s.len() {
+        material.push(byte_at(secret_s, i))
+        rewrite i += 1
+    }
+    set key: bytes = sha256(ref material)
+    set iv: bytes = copy_string_bytes(frame_s, MT_IV_OFF, MT_IV_OFF + 16)
+    set payload: bytes = cast(frame_s, "bytes")
+    return aes_ctr(key, iv, payload)
+}
+
+public fun mt_is_secure_header(clear: bytes) -> bool {
+    if clear.len() < MT_HEADER_LEN { return false }
+    set clear_cp: bytes = clear.cp()
+    set clear_s: string = cast(clear_cp, "string")
+    return byte_at(clear_s, 56) == 221u8 && byte_at(clear_s, 57) == 221u8 && byte_at(clear_s, 58) == 221u8 && byte_at(clear_s, 59) == 221u8
+}
+
+public fun mt_intermediate_payload_len(clear: bytes) -> int64 {
+    if clear.len() < 4 { return -1 }
+    set clear_cp: bytes = clear.cp()
+    set clear_s: string = cast(clear_cp, "string")
+    set n: int64 = cast(byte_at(clear_s, 0), "int64")
+    rewrite n += cast(byte_at(clear_s, 1), "int64") * 256
+    rewrite n += cast(byte_at(clear_s, 2), "int64") * 65536
+    rewrite n += cast(byte_at(clear_s, 3), "int64") * 16777216
+    if n < 0 || n > 16777215 { return -1 }
+    return n
+}
+
+public fun mt_tls_record_header(payload_len: int64) -> bytes {
+    set h: bytes = cast("", "bytes")
+    h.push(23u8)
+    h.push(3u8)
+    h.push(3u8)
+    h.push(cast(payload_len / 256, "uint8"))
+    h.push(cast(payload_len % 256, "uint8"))
+    return h
+}
+
+// ---------- FakeTLS ServerHello (proxy -> client) ----------
+
+// Build ServerHello body: version, 32 zero-random (patched later), session id echo,
+// chosen cipher, extensions with x25519 key share.
+public fun mt_server_hello_body(session_id: bytes, cipher_hi: int64, cipher_lo: int64, pubkey32: bytes) -> bytes {
+    set b: bytes = cast("", "bytes")
+    // server version 03 03
+    b.push(3u8)
+    b.push(3u8)
+    // random placeholder 32 zero bytes (HMAC patched at offset 11 of record)
+    set i: int64 = 0
+    while i < 32 {
+        b.push(0u8)
+        rewrite i += 1
+    }
+    // session id
+    b.push(cast(session_id.len(), "uint8"))
+    set sid_s: string = cast(session_id, "string")
     set k: int64 = 0
-    while k < 16 {
-        if byte_at(handshake_s, 48 + k) != byte_at(mac_s, 16 + k) {
-            return -1
-        }
+    while k < sid_s.len() {
+        b.push(byte_at(sid_s, k))
         rewrite k += 1
     }
-    return dc_id
+    // cipher suite (big endian)
+    b.push(cast(cipher_hi, "uint8"))
+    b.push(cast(cipher_lo, "uint8"))
+    // compression: 00
+    b.push(0u8)
+    // extensions length 0x002e
+    b.push(0u8)
+    b.push(46u8)
+    // supported_versions: 002b 0002 0304
+    b.push(0u8)
+    b.push(43u8)
+    b.push(0u8)
+    b.push(2u8)
+    b.push(3u8)
+    b.push(4u8)
+    // key_share: 0033 0024 001d 0020 + 32 bytes pubkey
+    b.push(0u8)
+    b.push(51u8)
+    b.push(0u8)
+    b.push(36u8)
+    b.push(0u8)
+    b.push(29u8)
+    b.push(0u8)
+    b.push(32u8)
+    set pk_s: string = cast(pubkey32, "string")
+    rewrite k = 0
+    while k < pk_s.len() {
+        b.push(byte_at(pk_s, k))
+        rewrite k += 1
+    }
+    return b
 }
 
-// Возвращает 32-байтный HMAC-SHA256 proof для ServerHello
-public fun mtproto_server_proof(handshake_s: string, secret_hex: string) -> bytes {
-    set secret_b: bytes = hex_to_bytes(secret_hex)
-    set prefix: bytes = cast("", "bytes")
+// Full welcome packet: handshake record + CCS + one ApplicationData noise record.
+// HMAC-SHA256(secret, client_random || packet-with-zeroed-server-random) -> server random.
+public fun mt_server_welcome(client_random: bytes, session_id: bytes, secret_hex: string, noise_len: int64) -> bytes {
+    set key: bytes = mt_secret_key(secret_hex)
+    set pk: bytes = random_bytes(32)
+    set noise: bytes = random_bytes(noise_len)
+    set hello_body: bytes = mt_server_hello_body(session_id, 19u8, 3u8, pk)
+    set out: bytes = cast("", "bytes")
+    // record: 16 03 03 + len(body)
+    out.push(22u8)
+    out.push(3u8)
+    out.push(3u8)
+    out.push(cast(hello_body.len() / 256, "uint8"))
+    out.push(cast(hello_body.len() % 256, "uint8"))
+    set hb_s: string = cast(hello_body, "string")
     set i: int64 = 0
-    while i < 64 {
-        prefix.push(byte_at(handshake_s, i))
+    while i < hb_s.len() {
+        out.push(byte_at(hb_s, i))
         rewrite i += 1
     }
-    set hmac_ctx = hmac_sha256_init(ref secret_b)
-    hmac_ctx.update(prefix)
-    return hmac_ctx.finish()
-}
-
-// Telegram Production DC table
-public fun dc_addr(dc_id: int64) -> string {
-    if dc_id == 1 { return "149.154.175.53:443" }
-    if dc_id == 2 { return "149.154.167.51:443" }
-    if dc_id == 3 { return "149.154.175.100:443" }
-    if dc_id == 4 { return "149.154.167.91:443" }
-    if dc_id == 5 { return "91.108.56.130:443" }
-    if dc_id == 6 { return "[2001:b28:f23d:f001::a]:443" }
-    if dc_id == 7 { return "[2001:67c:4e8:f004::9]:443" }
-    if dc_id == 8 { return "[2001:b28:f23f:f005::a]:443" }
-    return ""
+    // CCS record: 14 03 03 00 01 01
+    out.push(20u8)
+    out.push(3u8)
+    out.push(3u8)
+    out.push(0u8)
+    out.push(1u8)
+    out.push(1u8)
+    // appdata record: 17 03 03 + len(noise)
+    out.push(23u8)
+    out.push(3u8)
+    out.push(3u8)
+    out.push(cast(noise_len / 256, "uint8"))
+    out.push(cast(noise_len % 256, "uint8"))
+    set n_s: string = cast(noise, "string")
+    rewrite i = 0
+    while i < n_s.len() {
+        out.push(byte_at(n_s, i))
+        rewrite i += 1
+    }
+    // patch server random at offset 11
+    set out_s: string = cast(out, "string")
+    set mac_input: bytes = cast("", "bytes")
+    set cr_s: string = cast(client_random, "string")
+    rewrite i = 0
+    while i < 32 {
+        mac_input.push(byte_at(cr_s, i))
+        rewrite i += 1
+    }
+    rewrite i = 0
+    while i < 11 {
+        mac_input.push(byte_at(out_s, i))
+        rewrite i += 1
+    }
+    rewrite i = 43
+    while i < out_s.len() {
+        mac_input.push(byte_at(out_s, i))
+        rewrite i += 1
+    }
+    set mac: bytes = hmac_sha256(ref key, ref mac_input)
+    set mac_s: string = cast(mac, "string")
+    set head: string = slice(out_s, 0, 11)
+    set tail: string = slice(out_s, 43, out_s.len())
+    set res: bytes = cast("", "bytes")
+    res.reserve(out_s.len())
+    set head_b: bytes = cast(head, "bytes")
+    set mac_b: bytes = cast(mac_s, "bytes")
+    set tail_b: bytes = cast(tail, "bytes")
+    set hb: string = cast(head_b, "string")
+    set mb: string = cast(mac_b, "string")
+    set tb: string = cast(tail_b, "string")
+    rewrite i = 0
+    while i < hb.len() {
+        res.push(byte_at(hb, i))
+        rewrite i += 1
+    }
+    rewrite i = 0
+    while i < mb.len() {
+        res.push(byte_at(mb, i))
+        rewrite i += 1
+    }
+    rewrite i = 0
+    while i < tb.len() {
+        res.push(byte_at(tb, i))
+        rewrite i += 1
+    }
+    return res
 }

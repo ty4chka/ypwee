@@ -23,18 +23,18 @@ public fun i64_to_string(v: int64) -> string {
     set neg = v < 0
     set n = v
     if neg { rewrite n = -n }
-    set digits: uint8[] = []
-    rewrite digits = []
+    set digits: bytes = cast("", "bytes")
     while n > 0 {
         digits.push(cast(48 + n % 10, "uint8"))
         rewrite n /= 10
     }
     set out = ""
     if neg { rewrite out = "-" }
-    set i2 = digits.len()
+    set ds: string = cast(digits, "string")
+    set i2 = ds.len()
     while i2 > 0 {
         rewrite i2 -= 1
-        rewrite out = out + cast(cast(digits[i2], "char"), "string")
+        rewrite out = out + cast(ds[i2], "string")
     }
     return out
 }
