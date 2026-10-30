@@ -811,35 +811,19 @@ public class Proxy {
     fun mt_read(ci: int64) {
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
-        set buf: uint8[] = []
-        buf.reserve(16384)
-        set k: int64 = 0
-        while k < 16384 {
-            buf.push(0u8)
-            rewrite k += 1
-        }
-        set got: int64 = 0
+        set chunk: string = ""
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite got = cs.read_bytes(cast(buf.as_ptr(), "ptr<uint8>"), 16384)
+            rewrite chunk = cs.read(16384)
         } catch {
             this.drop_client(ci)
             return
         }
-        if got <= 0 {
+        if chunk.len() == 0 {
             this.drop_client(ci)
             return
         }
         this.c_idletick.set_i64(ci, this.tick)
-        eprint("[ypwee] mt: got=" + i64_to_string(got) + " b0=" + i64_to_string(cast(buf[0], "int64")) + " b1=" + i64_to_string(cast(buf[1], "int64")) + " b2=" + i64_to_string(cast(buf[2], "int64")) + " b3=" + i64_to_string(cast(buf[3], "int64")) + " b4=" + i64_to_string(cast(buf[4], "int64")) + "\n")
-        // build string from buf[0..got]
-        set acc_b: bytes = cast("", "bytes")
-        set j2: int64 = 0
-        while j2 < got {
-            acc_b.push(buf[j2])
-            rewrite j2 += 1
-        }
-        set chunk: string = cast(acc_b, "string")
         set prev: string = this.mt_state_get(ci)
         set acc: string = prev + chunk
         if acc.len() > MT_MAX_ACC {
