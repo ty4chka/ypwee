@@ -840,6 +840,7 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
+        eprint("[ypwee] mt: got " + i64_to_string(got) + " bytes\n")
         this.mt_state_set(ci, acc)
         this.mt_step(ci)
     }
