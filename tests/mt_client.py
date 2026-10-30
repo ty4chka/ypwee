@@ -133,6 +133,8 @@ def main():
         print("[client] FAIL: ServerHello HMAC mismatch")
         print(" expect", expect.hex())
         print(" got   ", resp_rand.hex())
+        print(" resp len", len(resp))
+        print(" resp[:64]", resp[:64].hex())
         return 1
     print("[client] OK: ServerHello HMAC verified - FakeTLS handshake complete")
     frame, dec_key, dec_iv, enc_key, enc_iv = obfuscated2_header(key16, DC)
