@@ -1,8 +1,17 @@
 #!/bin/bash
-# ypwee MTProto CI: build toolchain, run tests, build server, run e2e FakeTLS client.
+# ypwee MTProto CI: toolchain + tests + e2e FakeTLS client against real server.
 set -x
 cd "$(dirname "$0")/../.."
 
+# 1. LLVM 22 (обязательно для llvm-sys)
+sudo wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-22 main" | sudo tee /etc/apt/sources.list.d/llvm22.list
+sudo apt-get update -qq
+sudo apt-get install -y -qq llvm-22-dev libpolly-22-dev libzstd-dev zlib1g-dev
+export LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
+sudo ln -sf /usr/lib/llvm-22/bin/llvm-ar /usr/local/bin/llvm-ar
+
+# 2. Toolchain
 if [ ! -x /tmp/yukino/target/release/yukic ]; then
   git clone --depth 1 https://github.com/yukitsuri/yukino /tmp/yukino
   (cd /tmp/yukino && cargo build --release 2>&1 | tail -3)
@@ -10,11 +19,16 @@ fi
 sudo cp /tmp/yukino/target/release/yukic /tmp/yukino/target/release/yukino /usr/local/bin/
 yukic --version
 
-yukino test 2>&1 | tail -20
+# 3. Unit tests
+yukic --test --entry src/main.ykn -o test_ci.bin 2>&1 | tail -3
+chmod +x test_ci.bin
+./test_ci.bin 2>&1 | tail -6
 
+# 4. Build server
 yukic --release --entry src/main.ykn -o ypwee-ci.bin 2>&1 | tail -2
 ls -la ypwee-ci.bin
 
+# 5. e2e: server + python FakeTLS client
 pip install pycryptodome --quiet 2>&1 | tail -1
 cat > ypwee.conf <<'CONF'
 user = alice:changeMe1
