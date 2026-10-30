@@ -57,14 +57,13 @@ public class Aes256Ctr {
     }
 
     fun apply(data: bytes) -> bytes {
-        set ds: string = cast(data, "string")
-        set n: int64 = ds.len()
+        set n: int64 = data.len()
         set out: bytes = cast("", "bytes")
         out.reserve(n)
         set i: int64 = 0
         while i < n {
             if this.pos >= 16 { this.refill() }
-            out.push(byte_at(ds, i) ^ byte_at(this.ks, this.pos))
+            out.push(data[i] ^ byte_at(this.ks, this.pos))
             rewrite this.pos += 1
             rewrite i += 1
         }
