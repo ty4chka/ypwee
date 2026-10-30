@@ -926,6 +926,7 @@ public class Proxy {
 
     // Phase 1: wait 64-byte obfuscated2 header, decrypt, verify, connect DC
     fun mt_phase_obfs(ci: int64, acc: string) {
+        eprint("[ypwee] mt: phase obfs acc=" + i64_to_string(cast(acc.len(), "int64")) + "\n")
         if acc.len() < 64 { return }
         set frame0: bytes = cast(slice(acc, 0, 64), "bytes")
         set frame: bytes = frame0.cp()
