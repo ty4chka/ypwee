@@ -809,6 +809,7 @@ public class Proxy {
     }
 
     fun mt_read(ci: int64) {
+        eprint("[ypwee] mt: read event ci=" + i64_to_string(ci) + "\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
         set rbuf: bytes = cast("", "bytes")
