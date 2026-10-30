@@ -831,6 +831,7 @@ public class Proxy {
             return
         }
         this.c_idletick.set_i64(ci, this.tick)
+        eprint("[ypwee] mt: got=" + i64_to_string(got) + " b0=" + i64_to_string(cast(buf[0], "int64")) + " b1=" + i64_to_string(cast(buf[1], "int64")) + " b2=" + i64_to_string(cast(buf[2], "int64")) + " b3=" + i64_to_string(cast(buf[3], "int64")) + " b4=" + i64_to_string(cast(buf[4], "int64")) + "\n")
         // build string from buf[0..got]
         set acc_b: bytes = cast("", "bytes")
         set j2: int64 = 0
