@@ -2,13 +2,16 @@
 set -x
 cd "$(dirname "$0")/../.."
 
-# 1. LLVM 22 (обязательно для llvm-sys Yukino) — runner умеет sudo
+# 1. LLVM 22 (обязательно для llvm-sys Yukino)
 sudo wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
 echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-22 main" | sudo tee /etc/apt/sources.list.d/llvm22.list
 sudo apt-get update -qq
-sudo apt-get install -y -qq llvm-22-dev libpolly-22-dev libzstd-dev zlib1g-dev
+sudo apt-get install -y -qq llvm-22-dev libpolly-22-dev libzstd-dev zlib1g-dev lld-22
 echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> "$GITHUB_ENV"
 sudo ln -sf /usr/lib/llvm-22/bin/llvm-ar /usr/local/bin/llvm-ar
+sudo ln -sf /usr/bin/ld.lld-22 /usr/local/bin/ld.lld
+sudo ln -sf /usr/lib/llvm-22/bin/ld.lld /usr/bin/ld.lld 2>/dev/null || true
+ld.lld --version || ls /usr/lib/llvm-22/bin/ | head
 
 # 2. Yukino toolchain
 if [ ! -x /tmp/yukino/target/release/yukic ]; then
