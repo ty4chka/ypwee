@@ -264,49 +264,32 @@ public fun mt_server_welcome(client_random: bytes, session_id: bytes, secret_hex
     }
     // tdlib wait_hello_response: HMAC over client_random || ENTIRE RESPONSE (ServerHello + CCS + noise)
     // with server random zeroed at absolute offset 11..42 of the full out buffer.
-    set out_s: string = cast(out, "string")
+    // WORK WITH BYTES DIRECTLY: NO cast(bytes, "string") — it parses bytes as hex address!
     set mac_input: bytes = cast("", "bytes")
     set cr_s: string = cast(client_random, "string")
-    rewrite i = 0
-    while i < 32 {
-        mac_input.push(byte_at(cr_s, i))
-        rewrite i += 1
+    set j: int64 = 0
+    while j < 32 {
+        mac_input.push(byte_at(cr_s, j))
+        rewrite j += 1
     }
-    rewrite i = 0
-    while i < out_s.len() {
-        if i >= 11 && i < 43 {
+    set out_len: int64 = out.len()
+    rewrite j = 0
+    while j < out_len {
+        if j >= 11 && j < 43 {
             mac_input.push(0u8)
         } else {
-            mac_input.push(byte_at(out_s, i))
+            // direct bytes indexing, NO cast to string
+            mac_input.push(out[j])
         }
-        rewrite i += 1
+        rewrite j += 1
     }
     set mac: bytes = hmac_sha256(ref key, ref mac_input)
-    set mac_s: string = cast(mac, "string")
-    set head: string = slice(out_s, 0, 11)
-    set tail: string = slice(out_s, 43, out_s.len())
-    set res: bytes = cast("", "bytes")
-    res.reserve(out_s.len())
-    set head_b: bytes = cast(head, "bytes")
-    set mac_b: bytes = cast(mac_s, "bytes")
-    set tail_b: bytes = cast(tail, "bytes")
-    set hb: string = cast(head_b, "string")
-    set mb: string = cast(mac_b, "string")
-    set tb: string = cast(tail_b, "string")
-    rewrite i = 0
-    while i < hb.len() {
-        res.push(byte_at(hb, i))
-        rewrite i += 1
+    // write HMAC into out at offset 11..42 (server random field)
+    rewrite j = 0
+    while j < 32 {
+        rewrite out[11 + j] = mac[j]
+        rewrite j += 1
     }
-    rewrite i = 0
-    while i < mb.len() {
-        res.push(byte_at(mb, i))
-        rewrite i += 1
-    }
-    rewrite i = 0
-    while i < tb.len() {
-        res.push(byte_at(tb, i))
-        rewrite i += 1
-    }
-    return res
+    return out
+
 }
