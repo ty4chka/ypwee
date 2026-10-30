@@ -85,27 +85,32 @@ public fun mt_faketls_verify(client: bytes, secret_hex: string, hostname: string
 }
 
 public fun mt_obfs_client_key(frame: bytes, secret_hex: string) -> bytes {
-    set frame_cp0: bytes = frame.cp()
-    set frame_s: string = cast(frame_cp0, "string")
-    if frame_s.len() < MT_HEADER_LEN { return cast("", "bytes") }
-    set material: bytes = copy_string_bytes(frame_s, MT_KEY_OFF, MT_KEY_OFF + 32)
-    set secret: bytes = mt_secret_key(secret_hex)
-    material.reserve(secret.len())
-    set secret_s: string = cast(secret, "string")
+    if frame.len() < MT_HEADER_LEN { return cast("", "bytes") }
+    set material: bytes = cast("", "bytes")
+    material.reserve(48)
     set i: int64 = 0
-    set secret_n: int64 = cast(secret_s.len(), "int64")
-    while i < secret_n {
-        material.push(byte_at(secret_s, i))
+    while i < 32 {
+        material.push(frame[MT_KEY_OFF + i])
         rewrite i += 1
+    }
+    set secret: bytes = mt_secret_key(secret_hex)
+    set j: int64 = 0
+    while j < secret.len() {
+        material.push(secret[j])
+        rewrite j += 1
     }
     return sha256(ref material)
 }
 
 public fun mt_obfs_client_iv(frame: bytes) -> bytes {
-    set frame_cp0: bytes = frame.cp()
-    set frame_s: string = cast(frame_cp0, "string")
-    if frame_s.len() < MT_HEADER_LEN { return cast("", "bytes") }
-    return copy_string_bytes(frame_s, MT_IV_OFF, MT_IV_OFF + 16)
+    if frame.len() < MT_HEADER_LEN { return cast("", "bytes") }
+    set out: bytes = cast("", "bytes")
+    set i: int64 = 0
+    while i < 16 {
+        out.push(frame[MT_IV_OFF + i])
+        rewrite i += 1
+    }
+    return out
 }
 
 public fun mt_obfs_dc(frame: bytes) -> int64 {
