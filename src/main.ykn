@@ -813,6 +813,11 @@ public class Proxy {
         if idopt == null { return }
         set buf: uint8[] = []
         buf.reserve(16384)
+        set k: int64 = 0
+        while k < 16384 {
+            buf.push(0u8)
+            rewrite k += 1
+        }
         set got: int64 = 0
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
