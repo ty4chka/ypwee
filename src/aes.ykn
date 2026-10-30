@@ -12,20 +12,19 @@ load std.fs.archives.pass: aes_ctr
 public class Aes256Ctr {
     key: bytes
     ctr: uint8[]
-    ks: string
+    ks: bytes
     pos: int64
 
     fun init(key32: bytes, counter16: bytes) {
         rewrite this.key = key32
-        set cs: string = cast(counter16, "string")
         set c: uint8[] = []
         set k: int64 = 0
         while k < 16 {
-            c.push(byte_at(cs, k))
+            c.push(counter16[k])
             rewrite k += 1
         }
         rewrite this.ctr = c
-        rewrite this.ks = ""
+        rewrite this.ks = cast("", "bytes")
         rewrite this.pos = 16
     }
 
@@ -39,7 +38,7 @@ public class Aes256Ctr {
             rewrite k += 1
         }
         set raw: bytes = aes_ctr(this.key.cp(), blk, zeros)
-        rewrite this.ks = cast(raw, "string")
+        rewrite this.ks = raw
         rewrite this.pos = 0
         // counter += 1 (128-bit big-endian, как OpenSSL CTR128)
         set idx: int64 = 15
@@ -63,7 +62,7 @@ public class Aes256Ctr {
         set i: int64 = 0
         while i < n {
             if this.pos >= 16 { this.refill() }
-            out.push(data[i] ^ byte_at(this.ks, this.pos))
+            out.push(data[i] ^ this.ks[this.pos])
             rewrite this.pos += 1
             rewrite i += 1
         }
