@@ -889,6 +889,8 @@ public class Proxy {
         eprint("[ypwee] mt: phase hello acc=" + i64_to_string(cast(acc.len(), "int64")) + "\n")
         if acc.len() < 11 { return }
         eprint("[ypwee] mt: hello bytes " + i64_to_string(cast(acc.len(), "int64")) + "\n")
+        set hb0: string = cast(acc, "string")
+        eprint("[ypwee] mt: hdr " + i64_to_string(cast(byte_at(hb0, 0), "int64")) + " " + i64_to_string(cast(byte_at(hb0, 1), "int64")) + " " + i64_to_string(cast(byte_at(hb0, 2), "int64")) + " " + i64_to_string(cast(byte_at(hb0, 3), "int64")) + " " + i64_to_string(cast(byte_at(hb0, 4), "int64")) + "\n")
         set reclen: int64 = cast(byte_at(acc, 3), "int64") * 256 + cast(byte_at(acc, 4), "int64")
         set total: int64 = 5 + reclen
         eprint("[ypwee] mt: reclen=" + i64_to_string(reclen) + " rest=" + i64_to_string(cast(acc.len() - total, "int64")) + "\n")
