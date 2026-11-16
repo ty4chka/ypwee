@@ -4,3 +4,8 @@ dist/
 yuki-work/
 *.tar.gz
 ypwee.conf
+*.log
+*.bin
+*.zip
+run/
+ypwee.conf
