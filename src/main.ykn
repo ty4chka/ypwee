@@ -1094,6 +1094,7 @@ public class Proxy {
 
     // client -> DC: unwrap TLS records, decrypt with dec, write raw to DC
     fun mt_phase_relay_client(ci: int64, acc: string) {
+        eprint("[ypwee] mt: relay_client acc_len=" + i64_to_string(cast(acc.len(), "int64")) + "\n")
         // process as many complete TLS records as available
         set pos: int64 = 0
         set n: int64 = acc.len()
@@ -1182,6 +1183,7 @@ public class Proxy {
     }
 
     fun mt_dc_write(ci: int64, payload: bytes) {
+        eprint("[ypwee] mt: dc_write n=" + i64_to_string(cast(payload.len(), "int64")) + "\n")
         set ukopt = this.mt_uk.get_i64(ci)
         set uk: int64 = ukopt ?? 0
         set usopt = this.u_id.get_i64(uk)
