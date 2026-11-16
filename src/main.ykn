@@ -1062,6 +1062,7 @@ public class Proxy {
     }
 
     fun mt_dc_addr(dc: int64) -> string {
+        if this.cfg.dc_override.len() > 0 { return this.cfg.dc_override }
         if dc == 1 { return "149.154.175.53:443" }
         if dc == 2 { return "149.154.167.51:443" }
         if dc == 3 { return "149.154.175.100:443" }

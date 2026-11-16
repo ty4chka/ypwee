@@ -18,6 +18,7 @@ public class Config {
     mtproto_noise_mean: int64
     mtproto_noise_jitter: int64
     mtproto_handshake_timeout_ms: int64
+    dc_override: string
 
     fun init() {
         rewrite this.mode = "all"
@@ -86,6 +87,7 @@ public class Config {
     }
 
     fun init_mtproto() {
+        rewrite this.dc_override = ""
         rewrite this.mtproto_secret = ""
         rewrite this.mtproto_port = "127.0.0.1:443"
         rewrite this.mtproto_noise_mean = 3000
@@ -95,6 +97,7 @@ public class Config {
 
     fun apply_mtproto(key: string, val: string) {
         if key == "mtproto-secret" { rewrite this.mtproto_secret = val }
+        if key == "dc-override" { rewrite this.dc_override = val }
         if key == "mtproto-port" { rewrite this.mtproto_port = val }
         if key == "mtproto-noise-mean" { rewrite this.mtproto_noise_mean = cast(val, "int64") }
         if key == "mtproto-noise-jitter" { rewrite this.mtproto_noise_jitter = cast(val, "int64") }
