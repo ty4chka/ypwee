@@ -47,7 +47,7 @@ def handle(conn):
                 return
             nonce += part
         # nonce wire form: first 56 plain, last 8 encrypted with enc stream(nonce[8..56])
-        enc_key = hashlib.sha256(nonce[8:40]).digest()
+        enc_key = nonce[8:40]  # DC side: raw nonce bytes ARE the AES key (no hashing)
         enc_iv = int.from_bytes(nonce[40:56], "big")
         enc = Ctr(enc_key, enc_iv)
         dec_blob = enc.apply(nonce)  # advance 4 blocks
@@ -60,7 +60,7 @@ def handle(conn):
         print(f"[fakedc] handshake ok dc={dc_idx}", flush=True)
         # DC->proxy stream: reversed nonce[8..56]
         rev = nonce[8:56][::-1]
-        s2c_key = hashlib.sha256(rev[:32]).digest()
+        s2c_key = rev[:32]
         s2c_iv = int.from_bytes(rev[32:48], "big")
         s2c = Ctr(s2c_key, s2c_iv)
         # proxy->DC stream: same as enc (continues after nonce)
