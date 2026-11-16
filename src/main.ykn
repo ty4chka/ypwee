@@ -907,6 +907,38 @@ public class Proxy {
     }
 
     // Phase 0: wait full TLS ClientHello, verify, answer ServerHello
+
+    // M3 anti-probe: relay the prober to the real masking site (transparent TLS)
+    fun mt_mask_relay(ci: int64, first: bytes, first_len: int64) {
+        set host: string = mt_secret_host(this.cfg.mtproto_secret)
+        if host.len() == 0 {
+            this.drop_client(ci)
+            return
+        }
+        set addr: string = host + ":443"
+        set connected: int64 = 0
+        sus {
+            set up = tcp_connect(addr, this.cfg.hs_timeout_s * 1000)
+            up.set_nonblocking(true)
+            if first_len > 0 {
+                up.write_bytes(first.as_ptr(), first_len)
+                up.flush()
+            }
+            this.start_relay(ci, up)
+            rewrite connected = 1
+        } catch {
+            rewrite connected = 0
+        }
+        if connected == 0 {
+            this.drop_client(ci)
+            return
+        }
+        // stop treating this ci as an mt flow
+        this.c_sock.set_i64(ci, 0)
+        this.mt_state_drop(ci)
+        this.mt_phase.remove_i64(ci)
+    }
+
     fun mt_phase_hello2(ci: int64, acc: bytes, acc_len: int64) {
         set a: bytes = acc
         if acc_len < 11 { return }
@@ -917,8 +949,10 @@ public class Proxy {
         set host: string = mt_secret_host(secret)
         set verify_src: bytes = a.cp()
         if !mt_faketls_verify(verify_src, secret, host) {
-            eprint("[ypwee] mtproto: ClientHello verify failed\n")
-            this.drop_client(ci)
+            // M3: prober or wrong secret -> become a transparent relay to the real site
+            eprint("[ypwee] mtproto: ClientHello verify failed -> mask\n")
+            set mask_src: bytes = a.cp()
+            this.mt_mask_relay(ci, mask_src, acc_len)
             return
         }
         // client random at offset 11
@@ -1009,8 +1043,10 @@ public class Proxy {
         set clear: bytes = dec.apply(frame3)
         set clear_chk: bytes = clear.cp()
         if !mt_is_secure_header(clear_chk) {
-            eprint("[ypwee] mtproto: obfs header not dd/dd/dd/dd\n")
-            this.drop_client(ci)
+            // M3: garbage after a valid FakeTLS -> mask the prober to the real site
+            eprint("[ypwee] mtproto: obfs header not dd/dd/dd/dd -> mask\n")
+            set mask_src: bytes = a.cp()
+            this.mt_mask_relay(ci, mask_src, acc_len)
             return
         }
         set clear2: bytes = clear.cp()

@@ -76,3 +76,16 @@ echo "--- server.log:"; cat server.log
 RESULT=$(grep -c "E2E RELAY OK" client.log || true)
 echo "E2E_RESULT=$RESULT"
 [ "$RESULT" = "1" ]
+
+# 6. M3 anti-probe: wrong secret must yield a masked TLS response (restart server)
+kill $SRV 2>/dev/null || true
+sleep 1
+./ypwee-ci.bin ypwee.conf > server2.log 2>&1 &
+SRV=$!
+sleep 2
+YPWEE_ADDR=127.0.0.1:1443 python3 tests/mt_client.py probe 2>&1 | tee probe.log
+PROBE=$(grep -c "M3 MASK OK" probe.log || true)
+echo "PROBE_RESULT=$PROBE"
+kill $SRV 2>/dev/null || true
+kill $FDC 2>/dev/null || true
+[ "$PROBE" = "1" ]

@@ -180,4 +180,42 @@ def main():
         return 1
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "probe":
+        sys.exit(probe_wrong_secret())
     sys.exit(main())
+
+
+def probe_wrong_secret():
+    """M3 anti-probe: with a WRONG secret the proxy must transparently relay to the
+    real masking site (we should get a genuine TLS ServerHello from storage.googleapis.com)."""
+    secret_hex = "ee" + "00" * 16 + "6e6f7468696e672e6578616d706c65"  # wrong key, wrong host
+    raw = bytes.fromhex(secret_hex)
+    key16 = raw[1:17]
+    proxy = os.environ.get("YPWEE_ADDR", "127.0.0.1:1443")
+    ph, pp = proxy.split(":")
+    s = socket.create_connection((ph, int(pp)), timeout=10)
+    # any plausible ClientHello; HMAC will not match the real secret
+    hello = build_client_hello(key16, b"www.example.com")
+    s.sendall(hello)
+    s.settimeout(10)
+    resp = b""
+    try:
+        while len(resp) < 5:
+            part = s.recv(65536)
+            if not part:
+                break
+            resp += part
+            if len(resp) >= 5 and resp[0] == 0x16 and resp[1] == 0x03:
+                print(f"[prober] got TLS record back: type={resp[0]} ver={resp[1:3].hex()} len={struct.unpack('>H', resp[3:5])[0]}")
+                print("[prober] M3 MASK OK")
+                s.close()
+                return 0
+            if len(resp) >= 5 and resp[0] == 0x15:
+                print("[prober] got TLS alert (site refused?) — still a masked TLS response")
+                print("[prober] M3 MASK OK (alert)")
+                s.close()
+                return 0
+    except socket.timeout:
+        pass
+    print("[prober] FAIL: no masked TLS response")
+    return 1
