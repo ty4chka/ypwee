@@ -4,11 +4,9 @@ cd "$(dirname "$0")/../.."
 
 YUKINO_REF="753ee4e9374bb33b3dbbaf85028f7f66254207ff"
 
-# 1. LLVM 22 (modern keyring way, no apt-key)
-wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor --yes -o /usr/share/keyrings/llvm.gpg
-echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-22 main" | sudo tee /etc/apt/sources.list.d/llvm22.list
-sudo apt-get update -qq
-sudo apt-get install -y -qq llvm-22-dev libpolly-22-dev libzstd-dev zlib1g-dev lld-22
+# 1. LLVM 22 via official installer (handles runner codename itself)
+wget -qO- https://apt.llvm.org/llvm.sh | sudo -E bash -s -- 22
+sudo apt-get install -y -qq libpolly-22-dev lld-22 libzstd-dev zlib1g-dev
 echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> "$GITHUB_ENV"
 sudo ln -sf /usr/lib/llvm-22/bin/llvm-ar /usr/local/bin/llvm-ar
 sudo ln -sf /usr/bin/ld.lld-22 /usr/local/bin/ld.lld
