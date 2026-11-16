@@ -837,36 +837,23 @@ public class Proxy {
         eprint("[ypwee] mt: read ci=" + i64_to_string(ci) + "\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
-        // read_bytes into a preallocated buffer: cs.read() returns corrupted
-        // string length on this toolchain (heap garbage gets concatenated into acc)
-        set rbuf: bytes = cast("", "bytes")
-        rbuf.reserve(16384)
-        set got: int64 = 0
+        set chunk: string = ""
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite got = cs.read_bytes(rbuf.as_ptr(), 16384)
+            rewrite chunk = cs.read(16384)
         } catch {
             this.drop_client(ci)
             return
         }
-        if got <= 0 {
+        if chunk.len() == 0 {
             this.drop_client(ci)
             return
         }
-        set chunk_b: bytes = cast("", "bytes")
-        chunk_b.reserve(got)
-        set ci2: int64 = 0
-        while ci2 < got {
-            chunk_b.push(rbuf[ci2])
-            rewrite ci2 += 1
-        }
-        set chunk: string = cast(chunk_b, "string")
         this.c_idletick.set_i64(ci, this.tick)
-        eprint("[ypwee] mt: chunk.n=" + i64_to_string(got) + "\n")
         set prev: string = this.mt_state_get(ci)
         set prev_len: int64 = this.mt_len_get(ci)
         set acc: string = prev + chunk
-        rewrite prev_len += got
+        rewrite prev_len += cast(chunk.len(), "int64")
         if prev_len > MT_MAX_ACC {
             this.drop_client(ci)
             return
