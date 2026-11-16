@@ -1,37 +1,89 @@
-// ypwee — base64 (RFC 4648, standard alphabet) для WebSocket handshake.
+// ypwee — base64 (RFC 4648) через таблицу строк (byte->string cast паникует в рантайме).
 
-static B64_ALPHABET: string = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-
-load std.strings: byte_at
+public fun b64_digit(c: int64) -> string {
+    if c == 0 { return "A" }
+    if c == 1 { return "B" }
+    if c == 2 { return "C" }
+    if c == 3 { return "D" }
+    if c == 4 { return "E" }
+    if c == 5 { return "F" }
+    if c == 6 { return "G" }
+    if c == 7 { return "H" }
+    if c == 8 { return "I" }
+    if c == 9 { return "J" }
+    if c == 10 { return "K" }
+    if c == 11 { return "L" }
+    if c == 12 { return "M" }
+    if c == 13 { return "N" }
+    if c == 14 { return "O" }
+    if c == 15 { return "P" }
+    if c == 16 { return "Q" }
+    if c == 17 { return "R" }
+    if c == 18 { return "S" }
+    if c == 19 { return "T" }
+    if c == 20 { return "U" }
+    if c == 21 { return "V" }
+    if c == 22 { return "W" }
+    if c == 23 { return "X" }
+    if c == 24 { return "Y" }
+    if c == 25 { return "Z" }
+    if c == 26 { return "a" }
+    if c == 27 { return "b" }
+    if c == 28 { return "c" }
+    if c == 29 { return "d" }
+    if c == 30 { return "e" }
+    if c == 31 { return "f" }
+    if c == 32 { return "g" }
+    if c == 33 { return "h" }
+    if c == 34 { return "i" }
+    if c == 35 { return "j" }
+    if c == 36 { return "k" }
+    if c == 37 { return "l" }
+    if c == 38 { return "m" }
+    if c == 39 { return "n" }
+    if c == 40 { return "o" }
+    if c == 41 { return "p" }
+    if c == 42 { return "q" }
+    if c == 43 { return "r" }
+    if c == 44 { return "s" }
+    if c == 45 { return "t" }
+    if c == 46 { return "u" }
+    if c == 47 { return "v" }
+    if c == 48 { return "w" }
+    if c == 49 { return "x" }
+    if c == 50 { return "y" }
+    if c == 51 { return "z" }
+    if c == 52 { return "0" }
+    if c == 53 { return "1" }
+    if c == 54 { return "2" }
+    if c == 55 { return "3" }
+    if c == 56 { return "4" }
+    if c == 57 { return "5" }
+    if c == 58 { return "6" }
+    if c == 59 { return "7" }
+    if c == 60 { return "8" }
+    if c == 61 { return "9" }
+    if c == 62 { return "+" }
+    return "/"
+}
 
 public fun base64_encode(data: bytes) -> string {
     set d: bytes = data.cp()
     set n: int64 = cast(d.len(), "int64")
-    set alpha_s: string = B64_ALPHABET
     set out: string = ""
     set i: int64 = 0
     while i + 2 < n {
         set v: int64 = (cast(d[i], "int64") << 16) | (cast(d[i + 1], "int64") << 8) | cast(d[i + 2], "int64")
-        set s: string = ""
-        rewrite s = s + cast(byte_at(alpha_s, (v >> 18) & 63), "string")
-        rewrite s = s + cast(byte_at(alpha_s, (v >> 12) & 63), "string")
-        rewrite s = s + cast(byte_at(alpha_s, (v >> 6) & 63), "string")
-        rewrite s = s + cast(byte_at(alpha_s, v & 63), "string")
-        rewrite out = out + s
+        rewrite out = out + b64_digit((v >> 18) & 63) + b64_digit((v >> 12) & 63) + b64_digit((v >> 6) & 63) + b64_digit(v & 63)
         rewrite i += 3
     }
     set rem: int64 = n - i
     if rem == 1 {
         set v: int64 = cast(d[i], "int64") << 16
-        rewrite out = out + cast(byte_at(alpha_s, (v >> 18) & 63), "string")
-        rewrite out = out + cast(byte_at(alpha_s, (v >> 12) & 63), "string")
-        rewrite out = out + "=="
+        rewrite out = out + b64_digit((v >> 18) & 63) + b64_digit((v >> 12) & 63) + "=="
     } elif rem == 2 {
         set v: int64 = (cast(d[i], "int64") << 16) | (cast(d[i + 1], "int64") << 8)
-        rewrite out = out + cast(byte_at(alpha_s, (v >> 18) & 63), "string")
-        rewrite out = out + cast(byte_at(alpha_s, (v >> 12) & 63), "string")
-        rewrite out = out + cast(byte_at(alpha_s, (v >> 6) & 63), "string")
-        rewrite out = out + "="
+        rewrite out = out + b64_digit((v >> 18) & 63) + b64_digit((v >> 12) & 63) + b64_digit((v >> 6) & 63) + "="
     }
     return out
 }
