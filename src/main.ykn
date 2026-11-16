@@ -1246,10 +1246,9 @@ public class Proxy {
         }
         set clear: bytes = cast("", "bytes")
         clear.reserve(got)
-        set rstr: string = cast(rbuf, "string")
         set i: int64 = 0
         while i < got {
-            clear.push(byte_at(rstr, i))
+            clear.push(rbuf[i])
             rewrite i += 1
         }
         // DC->proxy decrypt, then proxy->client encrypt
@@ -1257,10 +1256,9 @@ public class Proxy {
         set cipher: bytes = this.mt_enc_arr[enc_idx].apply(dc_clear)
         // wrap into one TLS record (payload <= 16384 ok)
         set out: bytes = mt_tls_record_header(cipher.len())
-        set cs2: string = cast(cipher, "string")
         rewrite i = 0
-        while i < cs2.len() {
-            out.push(byte_at(cs2, i))
+        while i < cipher.len() {
+            out.push(cipher[i])
             rewrite i += 1
         }
         set okw: bool = this.mt_send_raw(ci, out)
