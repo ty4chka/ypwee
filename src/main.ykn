@@ -1,6 +1,8 @@
 load std.net: SocketPoller, POLL_READABLE, tcp_listen, tcp_connect
 load std.strings: byte_at, slice
 load std.hash.common: hex_to_bytes, bytes_to_hex
+load .sha1: sha1
+load .b64: base64_encode
 load .mtproto: mt_secret_key, mt_secret_host, mt_faketls_verify, mt_obfs_client_key, mt_obfs_client_iv, mt_obfs_dc, mt_is_secure_header, mt_intermediate_payload_len, mt_tls_record_header, mt_server_welcome, mt_gen_dc_nonce
 load .aes: Aes256Ctr
 

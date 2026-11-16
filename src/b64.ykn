@@ -1,0 +1,37 @@
+// ypwee — base64 (RFC 4648, standard alphabet) для WebSocket handshake.
+
+static B64_ALPHABET: string = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+load std.strings: byte_at
+
+public fun base64_encode(data: bytes) -> string {
+    set d: bytes = data.cp()
+    set n: int64 = cast(d.len(), "int64")
+    set alpha_s: string = B64_ALPHABET
+    set out: string = ""
+    set i: int64 = 0
+    while i + 2 < n {
+        set v: int64 = (cast(d[i], "int64") << 16) | (cast(d[i + 1], "int64") << 8) | cast(d[i + 2], "int64")
+        set s: string = ""
+        rewrite s = s + cast(byte_at(alpha_s, (v >> 18) & 63), "string")
+        rewrite s = s + cast(byte_at(alpha_s, (v >> 12) & 63), "string")
+        rewrite s = s + cast(byte_at(alpha_s, (v >> 6) & 63), "string")
+        rewrite s = s + cast(byte_at(alpha_s, v & 63), "string")
+        rewrite out = out + s
+        rewrite i += 3
+    }
+    set rem: int64 = n - i
+    if rem == 1 {
+        set v: int64 = cast(d[i], "int64") << 16
+        rewrite out = out + cast(byte_at(alpha_s, (v >> 18) & 63), "string")
+        rewrite out = out + cast(byte_at(alpha_s, (v >> 12) & 63), "string")
+        rewrite out = out + "=="
+    } elif rem == 2 {
+        set v: int64 = (cast(d[i], "int64") << 16) | (cast(d[i + 1], "int64") << 8)
+        rewrite out = out + cast(byte_at(alpha_s, (v >> 18) & 63), "string")
+        rewrite out = out + cast(byte_at(alpha_s, (v >> 12) & 63), "string")
+        rewrite out = out + cast(byte_at(alpha_s, (v >> 6) & 63), "string")
+        rewrite out = out + "="
+    }
+    return out
+}

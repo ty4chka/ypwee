@@ -1,0 +1,118 @@
+// ypwee — SHA-1 (RFC 3174) для WebSocket Sec-WebSocket-Accept (RFC 6455).
+// Чистый int64 + битовые операции, bytes на входе/выходе (20 байт дайджеста).
+
+public fun sha1_rol(x: int64, n: int64) -> int64 {
+    set m: int64 = 4294967295
+    return ((x << n) | (x >> (32 - n))) & m
+}
+
+public fun sha1(data: bytes) -> bytes {
+    set m: int64 = 4294967295
+    set h0: int64 = 1732584193
+    set h1: int64 = 4023233417
+    set h2: int64 = 2562383102
+    set h3: int64 = 271733878
+    set h4: int64 = 3285377520
+
+    set d: bytes = data.cp()
+    set msg_len: int64 = cast(d.len(), "int64")
+
+    // padding: msg + 0x80 + zeros + 8-byte BE bit length, кратно 64
+    set bit_len: int64 = msg_len * 8
+    set padded_len: int64 = ((msg_len + 8) / 64 + 1) * 64
+    set p: bytes = cast("", "bytes")
+    p.reserve(padded_len)
+    set i: int64 = 0
+    while i < msg_len {
+        p.push(d[i])
+        rewrite i += 1
+    }
+    p.push(128u8)
+    rewrite i = msg_len + 1
+    while i < padded_len - 8 {
+        p.push(0u8)
+        rewrite i += 1
+    }
+    set bl: int64 = bit_len
+    set shift: int64 = 56
+    while shift >= 0 {
+        p.push(cast((bl >> shift) & 255, "uint8"))
+        rewrite shift -= 8
+    }
+
+    set w: int64[] = []
+    set wi: int64 = 0
+    while wi < 80 {
+        w.push(0)
+        rewrite wi += 1
+    }
+    set block: int64 = 0
+    while block < padded_len {
+        set j: int64 = 0
+        while j < 16 {
+            set v: int64 = cast(p[block + j * 4], "int64") << 24
+            rewrite v = v | (cast(p[block + j * 4 + 1], "int64") << 16)
+            rewrite v = v | (cast(p[block + j * 4 + 2], "int64") << 8)
+            rewrite v = v | cast(p[block + j * 4 + 3], "int64")
+            rewrite w[j] = v & m
+            rewrite j += 1
+        }
+        rewrite j = 16
+        while j < 80 {
+            set x: int64 = w[j - 3] ^ w[j - 8] ^ w[j - 14] ^ w[j - 16]
+            rewrite w[j] = sha1_rol(x, 1)
+            rewrite j += 1
+        }
+        set a: int64 = h0
+        set b: int64 = h1
+        set c: int64 = h2
+        set dd: int64 = h3
+        set e: int64 = h4
+        set k: int64 = 0
+        while k < 80 {
+            set f: int64 = 0
+            set kk: int64 = 0
+            if k < 20 {
+                rewrite f = (b & c) | ((~b & m) & dd)
+                rewrite kk = 1518500249
+            } elif k < 40 {
+                rewrite f = b ^ c ^ dd
+                rewrite kk = 1859775393
+            } elif k < 60 {
+                rewrite f = (b & c) | (b & dd) | (c & dd)
+                rewrite kk = 2400959708
+            } else {
+                rewrite f = b ^ c ^ dd
+                rewrite kk = 3395469782
+            }
+            set temp: int64 = (sha1_rol(a, 5) + f + e + kk + w[k]) & m
+            rewrite e = dd
+            rewrite dd = c
+            rewrite c = sha1_rol(b, 30)
+            rewrite b = a
+            rewrite a = temp
+            rewrite k += 1
+        }
+        rewrite h0 = (h0 + a) & m
+        rewrite h1 = (h1 + b) & m
+        rewrite h2 = (h2 + c) & m
+        rewrite h3 = (h3 + dd) & m
+        rewrite h4 = (h4 + e) & m
+        rewrite block += 64
+    }
+
+    set out: bytes = cast("", "bytes")
+    out.reserve(20)
+    set hs: int64[] = [h0, h1, h2, h3, h4]
+    set q: int64 = 0
+    while q < 5 {
+        set v2: int64 = hs[q]
+        set s2: int64 = 24
+        while s2 >= 0 {
+            out.push(cast((v2 >> s2) & 255, "uint8"))
+            rewrite s2 -= 8
+        }
+        rewrite q += 1
+    }
+    return out
+}
