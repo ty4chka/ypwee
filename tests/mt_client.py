@@ -179,10 +179,6 @@ def main():
         print("[client] no response from DC (proxy may have failed)")
         return 1
 
-if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "probe":
-        sys.exit(probe_wrong_secret())
-    sys.exit(main())
 
 
 def probe_wrong_secret():
@@ -219,3 +215,9 @@ def probe_wrong_secret():
         pass
     print("[prober] FAIL: no masked TLS response")
     return 1
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "probe":
+        sys.exit(probe_wrong_secret())
+    sys.exit(main())
