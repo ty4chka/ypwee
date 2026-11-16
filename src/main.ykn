@@ -148,7 +148,6 @@ public class Proxy {
             this.poller.add_listener(ref l3, POLL_READABLE, KEY_MT_L)
             print("[ypwee] mtproto on " + this.cfg.mtproto_port + "\n")
         }
-        eprint("[ypwee] mt: entering poller loop\n")
         while true {
             set events = this.poller.wait(1000)
             rewrite this.tick += 1
@@ -168,7 +167,6 @@ public class Proxy {
                     }
                 }
                 if ev.key >= 1000u64 {
-                    eprint("[ypwee] mt: ev key=" + i64_to_string(cast(ev.key, "int64")) + (if ev.readable { " R" } else { "" }) + (if ev.is_error { " E" } else { "" }) + "\n")
                     this.on_readable(ev.key)
                 }
             }
@@ -197,7 +195,6 @@ public class Proxy {
     }
 
     fun accept_mt(ref listener: TcpListener) {
-        eprint("[ypwee] mt: accept_mt entry\n")
         if this.sec_window != this.tick {
             rewrite this.sec_window = this.tick
             rewrite this.sec_count = 0
@@ -225,7 +222,6 @@ public class Proxy {
         this.mt_hello_len.set_i64(ci, -1)
         this.poller.remove_listener(ref listener)
         this.poller.add_listener(ref listener, POLL_READABLE, KEY_MT_L)
-        eprint("[ypwee] mt: accept ci=" + i64_to_string(ci) + "\n")
     }
     fun push_client(k: int64, id: int64, is_socks: bool) {
         rewrite this.cis += 1
@@ -835,7 +831,6 @@ public class Proxy {
     }
 
     fun mt_read(ci: int64) {
-        eprint("[ypwee] mt: read ci=" + i64_to_string(ci) + "\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
         set rbuf: bytes = cast("", "bytes")
@@ -853,7 +848,6 @@ public class Proxy {
             return
         }
         this.c_idletick.set_i64(ci, this.tick)
-        eprint("[ypwee] mt: chunk got=" + i64_to_string(got) + "\n")
         set prev: bytes = this.mt_state_get(ci)
         set prev_len: int64 = this.mt_len_get2(ci)
         set acc: bytes = cast("", "bytes")
@@ -914,7 +908,6 @@ public class Proxy {
 
     // Phase 0: wait full TLS ClientHello, verify, answer ServerHello
     fun mt_phase_hello2(ci: int64, acc: bytes, acc_len: int64) {
-        eprint("[ypwee] mt: phase hello acc=" + i64_to_string(acc_len) + "\n")
         set a: bytes = acc
         if acc_len < 11 { return }
         set reclen: int64 = cast(a[3], "int64") * 256 + cast(a[4], "int64")
@@ -979,7 +972,6 @@ public class Proxy {
     }
 
     fun mt_phase_obfs2(ci: int64, acc: bytes, acc_len: int64) {
-        eprint("[ypwee] mt: phase obfs acc=" + i64_to_string(acc_len) + "\n")
         set a: bytes = acc
         // skip leading ChangeCipherSpec records (type 20) before the obfs2 frame
         set pos: int64 = 0
@@ -1150,8 +1142,7 @@ public class Proxy {
     fun start_mt_relay(ci: int64, upstream: TcpStream, dec: Aes256Ctr, enc: Aes256Ctr, tg_enc: Aes256Ctr, tg_dec: Aes256Ctr, dc: int64) {
         rewrite this.next_key += 1
         set uk: int64 = this.next_key
-        set reg_ok: bool = this.poller.add_stream(ref upstream, POLL_READABLE, cast(uk, "uint64"))
-        eprint("[ypwee] mt: dc poll reg ok=" + (if reg_ok { "y" } else { "n" }) + "\n")
+        this.poller.add_stream(ref upstream, POLL_READABLE, cast(uk, "uint64"))
         this.c_upkey.set_i64(ci, uk)
         this.c_state.set_i64(ci, 22)
         this.u_id.set_i64(uk, cast(upstream.id, "int64"))
@@ -1169,7 +1160,6 @@ public class Proxy {
 
     // client -> DC: unwrap TLS records, decrypt with dec, write raw to DC
     fun mt_phase_relay_client2(ci: int64, acc: bytes, n: int64) {
-        eprint("[ypwee] mt: relay_client n=" + i64_to_string(n) + "\n")
         set a: bytes = acc
         // process as many complete TLS records as available
         set pos: int64 = 0
@@ -1225,7 +1215,6 @@ public class Proxy {
     }
 
     fun mt_dc_write(ci: int64, payload: bytes) {
-        eprint("[ypwee] mt: dc_write n=" + i64_to_string(cast(payload.len(), "int64")) + "\n")
         set ukopt = this.mt_uk.get_i64(ci)
         set uk: int64 = ukopt ?? 0
         set usopt = this.u_id.get_i64(uk)
@@ -1250,7 +1239,6 @@ public class Proxy {
 
     // DC -> client: read raw from DC, encrypt with enc, wrap into TLS record, send
     fun mt_relay_up_to_client(ci: int64, uk: int64) {
-        eprint("[ypwee] mt: relay_up ci=" + i64_to_string(ci) + " uk=" + i64_to_string(uk) + "\n")
         set usopt = this.u_id.get_i64(uk)
         if usopt == null { return }
         set csopt = this.c_id.get_i64(ci)
@@ -1277,7 +1265,6 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        eprint("[ypwee] mt: dc_data got=" + i64_to_string(got) + "\n")
         set clear: bytes = cast("", "bytes")
         clear.reserve(got)
         set i: int64 = 0
