@@ -977,9 +977,10 @@ public class Proxy {
             set h = ws_parse(sub.cp(), subn)
             if h.total < 0 { break }
             if h.total > subn { break }
+            set htot: int64 = h.total
             set frame_b: bytes = sub.cp()
             this.web_on_message(ci, frame_b, h)
-            rewrite pos += h.total
+            rewrite pos += htot
             rewrite progressed = true
         }
         // keep leftover
@@ -1031,8 +1032,9 @@ public class Proxy {
                 payload.push(msg[q])
                 rewrite q += 1
             }
+            set wplen: int64 = w.plen
             this.web_on_frame(ci, w, payload)
-            rewrite off += 8 + w.plen
+            rewrite off += 8 + wplen
         }
     }
 
