@@ -234,7 +234,7 @@ public fun mt_server_welcome(client_random: bytes, session_id: bytes, secret_hex
     set key: bytes = mt_secret_key(secret_hex)
     set pk: bytes = random_bytes(32)
     set noise: bytes = random_bytes(noise_len)
-    set hello_body: bytes = mt_server_hello_body(session_id, 19u8, 3u8, pk)
+    set hello_body: bytes = mt_server_hello_body(session_id, 19, 3, pk)
     set out: bytes = cast("", "bytes")
     // record: 16 03 03 + len(body)
     out.push(22u8)
