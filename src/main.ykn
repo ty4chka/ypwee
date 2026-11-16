@@ -961,7 +961,9 @@ public class Proxy {
         set clear: bytes = dec.apply(frame3)
         set clear_chk: bytes = clear.cp()
         if !mt_is_secure_header(clear_chk) {
-            set dbg_c: bytes = cast(slice(clear_s, 48, 64), "bytes")
+            set clear_dbg: bytes = clear.cp()
+            set clear_dbg_s: string = cast(clear_dbg, "string")
+            set dbg_c: bytes = cast(slice(clear_dbg_s, 48, 64), "bytes")
             eprint("[ypwee] mtproto: obfs header not dd/dd/dd/dd clear48=" + bytes_to_hex(ref dbg_c) + "\n")
             this.drop_client(ci)
             return
