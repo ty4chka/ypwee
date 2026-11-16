@@ -8,7 +8,7 @@
 
 </div>
 
-> <b>Status: M1 code complete, NOT COMPILED.</b> No toolchain locally — run <code>yukino test</code> to verify. Tested-by-you gate before any "works" claim. There is no released binary yet. This README describes goals and the plan.
+> <b>Status: M1–M3 complete.</b> SOCKS5 + HTTP CONNECT e2e-verified (M1). MTProto FakeTLS + obfuscated2 relay e2e-verified on amd64/arm64 CI against a local fake DC (M2, tag <code>v0.2.0-m2</code>). Anti-probe masking: wrong secret/garbage transparently relays to the real masking site (M3, tag <code>v0.3.0-m3</code>). Telegram DCs ignore obfs2 from datacenter IPs — real-DC test still pending from a residential IP. M4 (WEB relay) and M5 (signed releases, benchmarks) are next.
 
 <table>
 <tr><td align="center" width="25%"><img src="assets/card-mtproto.svg" width="240" alt="MTProto"></td><td align="center" width="25%"><img src="assets/card-socks5.svg" width="240" alt="SOCKS5"></td><td align="center" width="25%"><img src="assets/card-web.svg" width="240" alt="WEB"></td><td align="center" width="25%"><img src="assets/card-stealth.svg" width="240" alt="Stealth"></td></tr>
