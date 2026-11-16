@@ -1,5 +1,5 @@
 load std.net: SocketPoller, POLL_READABLE, tcp_listen, tcp_connect
-load std.strings: byte_at, slice, index_of, to_lowercase
+load std.strings: byte_at, slice, index_of
 load std.hash.common: hex_to_bytes, bytes_to_hex
 load .web: ws_parse, ws_payload, ws_build, wf_parse, wf_build
 load .sha1: sha1
