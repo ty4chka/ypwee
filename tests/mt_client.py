@@ -142,7 +142,10 @@ def main():
     frame, dec_key, dec_iv, enc_key, enc_iv = obfuscated2_header(key16, DC)
     dec = Ctr(dec_key, dec_iv)
     enc = Ctr(enc_key, enc_iv)
-    s.sendall(dec.apply(frame))
+    # official obfuscated2: first 56 bytes go on the wire PLAIN, only last 8 encrypted
+    # (the CTR stream still consumes all 64 bytes)
+    consumed = dec.apply(frame[:64])
+    s.sendall(frame[:56] + consumed[56:64])
     print("[client] obfuscated2 header sent, dc", DC)
     # real unencrypted MTProto req_pq_multi#be7e8ef1 inside intermediate framing
     body = struct.pack("<I", 0xBE7E8EF1) + os.urandom(16)
