@@ -1,0 +1,147 @@
+// ypwee — WEB relay codecs: WebSocket (RFC 6455) + tdesktop carrier frames.
+// Carrier frame (tdesktop web-proxy-plan §6): type:u8 | sid:u24 BE | len:u32 BE | payload.
+// Все операции на bytes (string-возвраты компилятора ненадёжны).
+
+// ---------- WebSocket frame header ----------
+
+public struct WsFrame {
+    opcode: int64,   // 1 text, 2 binary, 8 close, 9 ping, 10 pong
+    plen: int64,     // payload length
+    hlen: int64,     // header length (2..14)
+    total: int64,    // hlen + plen; -1 = incomplete, -2 = protocol error
+    m0: int64,
+    m1: int64,
+    m2: int64,
+    m3: int64,
+    masked: bool
+}
+
+public fun ws_parse(b: bytes, n: int64) -> WsFrame {
+    set r = WsFrame { opcode: 0, plen: 0, hlen: 0, total: -1, m0: 0, m1: 0, m2: 0, m3: 0, masked: false }
+    if n < 2 { return r }
+    set b0: int64 = cast(b[0], "int64")
+    set b1: int64 = cast(b[1], "int64")
+    rewrite r.opcode = b0 & 15
+    set masked: bool = (b1 & 128) != 0
+    rewrite r.masked = masked
+    set l7: int64 = b1 & 127
+    set plen: int64 = 0
+    set hlen: int64 = 2
+    if l7 < 126 {
+        rewrite plen = l7
+    } elif l7 == 126 {
+        if n < 4 { return r }
+        rewrite plen = cast(b[2], "int64") * 256 + cast(b[3], "int64")
+        rewrite hlen = 4
+    } else {
+        if n < 10 { return r }
+        set i: int64 = 0
+        while i < 8 {
+            rewrite plen = plen * 256 + cast(b[2 + i], "int64")
+            rewrite i += 1
+        }
+        rewrite hlen = 10
+    }
+    if masked { rewrite hlen += 4 }
+    rewrite r.plen = plen
+    rewrite r.hlen = hlen
+    rewrite r.total = hlen + plen
+    if masked {
+        rewrite r.m0 = cast(b[hlen - 4], "int64")
+        rewrite r.m1 = cast(b[hlen - 3], "int64")
+        rewrite r.m2 = cast(b[hlen - 2], "int64")
+        rewrite r.m3 = cast(b[hlen - 1], "int64")
+    }
+    return r
+}
+
+// payload of a parsed frame, unmasked
+public fun ws_payload(b: bytes, f: WsFrame) -> bytes {
+    set out: bytes = cast("", "bytes")
+    out.reserve(f.plen)
+    set i: int64 = 0
+    while i < f.plen {
+        set v: int64 = cast(b[f.hlen + i], "int64")
+        if f.masked {
+            set q: int64 = i - (i / 4) * 4
+            if q == 0 {
+                rewrite v = v ^ f.m0
+            } elif q == 1 {
+                rewrite v = v ^ f.m1
+            } elif q == 2 {
+                rewrite v = v ^ f.m2
+            } else {
+                rewrite v = v ^ f.m3
+            }
+        }
+        out.push(cast(v, "uint8"))
+        rewrite i += 1
+    }
+    return out
+}
+
+// server->client frame: FIN, no mask
+public fun ws_build(opcode: int64, payload: bytes) -> bytes {
+    set out: bytes = cast("", "bytes")
+    out.push(cast(128 | opcode, "uint8"))
+    set n: int64 = cast(payload.len(), "int64")
+    if n < 126 {
+        out.push(cast(n, "uint8"))
+    } elif n < 65536 {
+        out.push(126u8)
+        out.push(cast(n / 256, "uint8"))
+        out.push(cast(n - (n / 256) * 256, "uint8"))
+    } else {
+        out.push(127u8)
+        set v: int64 = n
+        set shift: int64 = 56
+        while shift >= 0 {
+            out.push(cast((v >> shift) & 255, "uint8"))
+            rewrite shift -= 8
+        }
+    }
+    set i: int64 = 0
+    while i < n {
+        out.push(payload[i])
+        rewrite i += 1
+    }
+    return out
+}
+
+// ---------- tdesktop carrier frames ----------
+
+public struct Wf {
+    ftype: int64,   // 0x01 OPEN, 0x02 DATA, 0x03 CLOSE, 0x04 WINDOW, 0x05 PING, 0x06 PONG, 0x10 HELLO, 0x11 WELCOME
+    sid: int64,     // 24-bit stream id
+    plen: int64,
+    ok: bool        // false = not enough bytes
+}
+
+public fun wf_parse(b: bytes, n: int64, off: int64) -> Wf {
+    set r = Wf { ftype: 0, sid: 0, plen: 0, ok: false }
+    if off + 8 > n { return r }
+    rewrite r.ftype = cast(b[off], "int64")
+    rewrite r.sid = cast(b[off + 1], "int64") * 65536 + cast(b[off + 2], "int64") * 256 + cast(b[off + 3], "int64")
+    rewrite r.plen = cast(b[off + 4], "int64") * 16777216 + cast(b[off + 5], "int64") * 65536 + cast(b[off + 6], "int64") * 256 + cast(b[off + 7], "int64")
+    rewrite r.ok = true
+    return r
+}
+
+public fun wf_build(ftype: int64, sid: int64, payload: bytes) -> bytes {
+    set out: bytes = cast("", "bytes")
+    out.push(cast(ftype, "uint8"))
+    out.push(cast((sid / 65536) & 255, "uint8"))
+    out.push(cast((sid / 256) & 255, "uint8"))
+    out.push(cast(sid & 255, "uint8"))
+    set n: int64 = cast(payload.len(), "int64")
+    out.push(cast((n / 16777216) & 255, "uint8"))
+    out.push(cast((n / 65536) & 255, "uint8"))
+    out.push(cast((n / 256) & 255, "uint8"))
+    out.push(cast(n & 255, "uint8"))
+    set i: int64 = 0
+    while i < n {
+        out.push(payload[i])
+        rewrite i += 1
+    }
+    return out
+}

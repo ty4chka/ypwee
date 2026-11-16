@@ -1,0 +1,66 @@
+load .web: ws_parse, ws_payload, ws_build, wf_parse, wf_build
+load std.hash.common: hex_to_bytes, bytes_to_hex
+
+// RFC 6455 5.7: masked "Hello" text frame
+#[test]
+fun ws_masked_hello() {
+    set f: bytes = hex_to_bytes("818537fa213d7f9f4d5158")
+    set fn: int64 = cast(f.len(), "int64")
+    set f2: bytes = f.cp()
+    set p = ws_parse(f2, fn)
+    assert(p.total == 11, "total")
+    assert(p.opcode == 1, "opcode")
+    assert(p.plen == 5, "plen")
+    assert(p.masked, "masked")
+    set payload: bytes = ws_payload(f, p)
+    // f alive: ws_parse got the copy
+    set s: string = cast(payload, "string")
+    assert(s == "Hello", "unmask")
+}
+
+#[test]
+fun ws_server_hello() {
+    set p: bytes = cast("Hello", "bytes")
+    set built: bytes = ws_build(1, p)
+    assert(bytes_to_hex(ref built) == "810548656c6c6f", "server frame")
+}
+
+#[test]
+fun ws_len16() {
+    // 200-byte payload -> 126 marker + 16-bit len
+    set p: bytes = cast("", "bytes")
+    set i: int64 = 0
+    while i < 200 {
+        p.push(65u8)
+        rewrite i += 1
+    }
+    set built: bytes = ws_build(2, p)
+    set bn: int64 = cast(built.len(), "int64")
+    set b2: bytes = built.cp()
+    set p2 = ws_parse(b2, bn)
+    assert(p2.total == 204, "total 204")
+    assert(p2.hlen == 4, "hlen 4")
+    assert(p2.plen == 200, "plen 200")
+    assert(!p2.masked, "unmasked")
+}
+
+#[test]
+fun wf_roundtrip() {
+    set p: bytes = cast("abc", "bytes")
+    set built: bytes = wf_build(2, 66051, p)   // sid 0x010203
+    assert(bytes_to_hex(ref built) == "0201020300000003616263", "wire bytes")
+    set bl: int64 = cast(built.len(), "int64")
+    set b3: bytes = built.cp()
+    set parsed = wf_parse(b3, bl, 0)
+    assert(parsed.ok, "ok")
+    assert(parsed.ftype == 2, "type")
+    assert(parsed.sid == 66051, "sid")
+    assert(parsed.plen == 3, "plen")
+}
+
+#[test]
+fun wf_welcome_is_8_bytes() {
+    set empty: bytes = cast("", "bytes")
+    set w: bytes = wf_build(17, 0, empty)
+    assert(bytes_to_hex(ref w) == "1100000000000000", "welcome frame")
+}
