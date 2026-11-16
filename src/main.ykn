@@ -806,18 +806,73 @@ public class Proxy {
         return -1
     }
 
-    // case-insensitive header lookup: returns trimmed value or "" (a = full request bytes, n = total len)
+    // ASCII lowercase of a byte buffer (stdlib to_lowercase not in pinned toolchain)
+    fun web_lower_b(a: bytes, n: int64) -> bytes {
+        set out: bytes = cast("", "bytes")
+        out.reserve(n)
+        set i: int64 = 0
+        while i < n {
+            set v: int64 = cast(a[i], "int64")
+            if v >= 65 && v <= 90 { rewrite v += 32 }
+            out.push(cast(v, "uint8"))
+            rewrite i += 1
+        }
+        return out
+    }
+
+    // ASCII lowercase of a string
+    fun web_lower_s(x: string) -> string {
+        set b: bytes = cast(x.cp(), "bytes")
+        set n: int64 = cast(b.len(), "int64")
+        set l: bytes = this.web_lower_b(b, n)
+        return cast(l, "string")
+    }
+
+    // case-insensitive header lookup: returns value or "" (a = request bytes, n = len)
     fun web_hdr_get(a: bytes, n: int64, name: string) -> string {
-        set req_s: string = cast(a.cp(), "string")
-        set low: string = to_lowercase(req_s)
-        set want: string = to_lowercase(name) + ":"
-        set pos: int64 = index_of(low, want)
-        if pos < 0 { return "" }
-        set vstart: int64 = pos + cast(want.len(), "int64")
-        set vend: int64 = index_of(slice(low, vstart, cast(low.len(), "int64")), "\r\n")
-        if vend < 0 { return "" }
-        rewrite vend += vstart
-        return slice(req_s, vstart, vend)
+        set want: bytes = cast(this.web_lower_s(name) + ":", "bytes")
+        set wl: int64 = cast(want.len(), "int64")
+        set i: int64 = 0
+        while i + wl < n {
+            set at_line_start: bool = i == 0
+            if i > 0 && cast(a[i - 1], "int64") == 10 {
+                rewrite at_line_start = true
+            }
+            if at_line_start && cast(a[i], "int64") != 13 {
+                set match: bool = true
+                set k: int64 = 0
+                while k < wl {
+                    set v: int64 = cast(a[i + k], "int64")
+                    if v >= 65 && v <= 90 { rewrite v += 32 }
+                    if v != cast(want[k], "int64") {
+                        rewrite match = false
+                        break
+                    }
+                    rewrite k += 1
+                }
+                if match {
+                    set vstart: int64 = i + wl
+                    while vstart < n && cast(a[vstart], "int64") == 32 { rewrite vstart += 1 }
+                    set vend: int64 = vstart
+                    while vend + 1 < n && !(cast(a[vend], "int64") == 13 && cast(a[vend + 1], "int64") == 10) {
+                        rewrite vend += 1
+                    }
+                    if vstart < vend {
+                        set out: bytes = cast("", "bytes")
+                        out.reserve(vend - vstart)
+                        set q: int64 = vstart
+                        while q < vend {
+                            out.push(a[q])
+                            rewrite q += 1
+                        }
+                        return cast(out, "string")
+                    }
+                    return ""
+                }
+            }
+            rewrite i += 1
+        }
+        return ""
     }
 
     fun web_handle_http(ci: int64, a: bytes, n: int64) {
