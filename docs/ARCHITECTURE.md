@@ -35,3 +35,14 @@ A single `SocketPoller` (epoll/kqueue) loop accepts connections and looks at the
 - Unit tests via `yukino test` (`#[test]`, `#[timeout_ms]`).
 - Protocol vectors: AES-CTR (NIST), HMAC, RFC 6455 frames, SOCKS5 (RFC 1928/1929).
 - Soak test in CI: thousands of idle connections, assert flat RSS.
+
+---
+
+## Status 2026-11-16 (audit)
+
+- M1 (SOCKS5+HTTP) — shipped, e2e in CI, faster than microsocks ×1.9.
+- M2 (MTProto FakeTLS) — e2e RELAY OK on amd64+arm64; known segfault in `accept_mt` → `i64_to_string` (compiler bug, being reported upstream). Stale gdb.log removed from repo.
+- M3 (anti-probe masking) — done, PROBE OK in CI.
+- M4 — sha1/b64 (RFC vectors green), WS + carrier frames landed (wire-exact tests). WS-mux + HTTP upgrade pending.
+- Repo hygiene: artifacts/logs/dev configs removed from git; `.gitignore` extended; repo is now **private**.
+- New: `.github/workflows/strix.yml` — on-demand Strix AI security scan (GLM-5.3), report artifact.
