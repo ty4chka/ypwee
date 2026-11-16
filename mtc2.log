@@ -1,0 +1,8 @@
+[client] secret host: storage.googleapis.com
+Traceback (most recent call last):
+  File "/data/data/com.termux/files/home/ypwee-final/tests/mt_client.py", line 180, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/data/data/com.termux/files/home/ypwee-final/tests/mt_client.py", line 113, in main
+    part = s.recv(65536)
+ConnectionResetError: [Errno 104] Connection reset by peer

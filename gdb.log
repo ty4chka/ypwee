@@ -1,0 +1,18 @@
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/libthread_db.so.1".
+[ypwee] mode=all
+[ypwee] socks5 on 127.0.0.1:1080
+[ypwee] http on 127.0.0.1:8081
+[ypwee] mtproto on 127.0.0.1:1443
+[ypwee] mt: entering poller loop
+[ypwee] mt: accept_mt entry
+
+Program received signal SIGSEGV, Segmentation fault.
+0x00000055000b906c in yukino_region_alloc ()
+#0  0x00000055000b906c in yukino_region_alloc ()
+#1  0x00000055000b8938 in yukino_rt::rt_cast::copy_to_region ()
+#2  0x00000055000b9768 in yukino_rt_uint64_to_string ()
+#3  0x00000055000b7c6c in __yukifun_i64_to_string_int64__string ()
+#4  0x00000055000a19f8 in _Y_Proxy_accept_mt ()
+#5  0x00000055000a169c in _Y_Proxy_run ()
+#6  0x00000055000b82e4 in main ()
