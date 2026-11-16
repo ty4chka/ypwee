@@ -1,8 +1,10 @@
 #!/bin/bash
-set -x
+set -eux
 cd "$(dirname "$0")/../.."
 
-# 1. LLVM 22 (обязательно для llvm-sys Yukino)
+YUKINO_REF="753ee4e9374bb33b3dbbaf85028f7f66254207ff"
+
+# 1. LLVM 22
 sudo wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
 echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-22 main" | sudo tee /etc/apt/sources.list.d/llvm22.list
 sudo apt-get update -qq
@@ -10,13 +12,31 @@ sudo apt-get install -y -qq llvm-22-dev libpolly-22-dev libzstd-dev zlib1g-dev l
 echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> "$GITHUB_ENV"
 sudo ln -sf /usr/lib/llvm-22/bin/llvm-ar /usr/local/bin/llvm-ar
 sudo ln -sf /usr/bin/ld.lld-22 /usr/local/bin/ld.lld
-sudo ln -sf /usr/lib/llvm-22/bin/ld.lld /usr/bin/ld.lld 2>/dev/null || true
-ld.lld --version || ls /usr/lib/llvm-22/bin/ | head
 
-# 2. Yukino toolchain
+# 2. Yukino toolchain (PINNED + sret patch for aarch64 ABI)
 if [ ! -x /tmp/yukino/target/release/yukic ]; then
-  git clone --depth 1 https://github.com/yukitsuri/yukino /tmp/yukino
-  (cd /tmp/yukino && cargo build --release 2>&1 | tail -5)
+  git clone https://github.com/yukitsuri/yukino /tmp/yukino
+  (cd /tmp/yukino \
+    && git fetch --depth 1 origin "$YUKINO_REF" && git checkout -q "$YUKINO_REF" \
+    && python3 - <<'PY'
+import re
+targets = {
+    "crates/yukic-codegen/src/intrinsic.rs": [
+        r"(?m)^[ \t]*f\.add_attribute\(AttributeLoc::Param\(0\), sret_attr\);\r?\n",
+        r"(?m)^[ \t]*call\.add_attribute\(AttributeLoc::Param\(0\), sret_attr\);\r?\n",
+    ],
+    "crates/yukic-codegen/src/body/mod.rs": [
+        r"(?m)^[ \t]*f\.add_attribute\(AttributeLoc::Param\(0\), sret_attr\);\r?\n",
+    ],
+}
+for path, pats in targets.items():
+    s = open(path, encoding="utf-8").read()
+    for pat in pats:
+        s, n = re.subn(pat, "", s)
+        print("patched", path, pat[:40], n)
+        open(path, "w", encoding="utf-8").write(s)
+PY
+    && cargo build --release 2>&1 | tail -5)
 fi
 sudo cp /tmp/yukino/target/release/yukic /tmp/yukino/target/release/yukino /usr/local/bin/
 yukic --version
@@ -43,7 +63,9 @@ chmod +x ypwee-ci.bin
 SRV=$!
 sleep 2
 YPWEE_SECRET=ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d YPWEE_ADDR=127.0.0.1:1443 python3 tests/mt_client.py 2>&1 | tee client.log
-kill $SRV 2>/dev/null
+RC=$?
+kill $SRV 2>/dev/null || true
 echo "--- server.log:"; cat server.log
 RESULT=$(grep -c "E2E RELAY OK" client.log || true)
 echo "E2E_RESULT=$RESULT"
+[ "$RESULT" = "1" ]
