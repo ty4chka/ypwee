@@ -1,6 +1,7 @@
 load std.net: SocketPoller, POLL_READABLE, tcp_listen, tcp_connect
-load std.strings: byte_at, slice
+load std.strings: byte_at, slice, index_of, to_lowercase
 load std.hash.common: hex_to_bytes, bytes_to_hex
+load .web: ws_parse, ws_payload, ws_build, wf_parse, wf_build
 load .sha1: sha1
 load .b64: base64_encode
 load .mtproto: mt_secret_key, mt_secret_host, mt_faketls_verify, mt_obfs_client_key, mt_obfs_client_iv, mt_obfs_dc, mt_is_secure_header, mt_intermediate_payload_len, mt_tls_record_header, mt_server_welcome, mt_gen_dc_nonce
@@ -76,6 +77,10 @@ public class Proxy {
     mt_phase: HashMap<int64, int64>   // ci -> phase (0 hello, 1 obfs2, 2 relay)
     mt_hello_len: HashMap<int64, int64> // ci -> expected ClientHello total len (or -1)
     mt_dc_uk: HashMap<int64, int64>   // upstream key -> ci
+    // WEB relay (M4): sid -> upstream key, upstream key -> sid (per WS carrier ci)
+    web_sid_uk: HashMap<int64, int64>   // ci*16777216 + sid -> uk
+    web_uk_sid: HashMap<int64, int64>   // uk -> ci*16777216 + sid
+    web_welcomed: HashMap<int64, int64> // ci -> 1 after WELCOME sent
     // single active MT session (class-field state; indexed Aes256Ctr[] apply broke on pinned toolchain)
     mt_dec: Aes256Ctr?        // client->proxy stream
     mt_enc: Aes256Ctr?        // proxy->client stream
@@ -116,6 +121,9 @@ public class Proxy {
         rewrite this.mt_phase = init HashMap<int64, int64>()
         rewrite this.mt_hello_len = init HashMap<int64, int64>()
         rewrite this.mt_dc_uk = init HashMap<int64, int64>()
+        rewrite this.web_sid_uk = init HashMap<int64, int64>()
+        rewrite this.web_uk_sid = init HashMap<int64, int64>()
+        rewrite this.web_welcomed = init HashMap<int64, int64>()
         rewrite this.mt_dec = null
         rewrite this.mt_enc = null
         rewrite this.mt_tge = null
@@ -713,6 +721,20 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
+        set isweb: int64 = this.c_sock.get_i64(ci) ?? 0
+        if isweb == 3 {
+            set wb: bytes = cast("", "bytes")
+            wb.reserve(got)
+            set wi: int64 = 0
+            while wi < got {
+                wb.push(rbuf[wi])
+                rewrite wi += 1
+            }
+            this.web_backend_to_client(ci, uk, wb, got)
+            this.c_idletick.set_i64(ci, this.tick)
+            this.rearm_up(uk)
+            return
+        }
         set okw: int64 = 1
         sus {
             set cs = init TcpStream(cast(csopt ?? 0, "uint64"))
@@ -768,6 +790,293 @@ public class Proxy {
         }
         this.c_idletick.set_i64(ci, this.tick)
         this.rearm(ci)
+    }
+
+    // ===================== WEB relay (M4) =====================
+
+    // find "\r\n\r\n" end of HTTP headers in acc[0..n)
+    fun web_hdr_end(a: bytes, n: int64) -> int64 {
+        set i: int64 = 0
+        while i + 3 < n {
+            if cast(a[i], "int64") == 13 && cast(a[i + 1], "int64") == 10 && cast(a[i + 2], "int64") == 13 && cast(a[i + 3], "int64") == 10 {
+                return i + 4
+            }
+            rewrite i += 1
+        }
+        return -1
+    }
+
+    // case-insensitive header lookup: returns trimmed value or "" (a = full request bytes, n = total len)
+    fun web_hdr_get(a: bytes, n: int64, name: string) -> string {
+        set req_s: string = cast(a.cp(), "string")
+        set low: string = to_lowercase(req_s)
+        set want: string = to_lowercase(name) + ":"
+        set pos: int64 = index_of(low, want)
+        if pos < 0 { return "" }
+        set vstart: int64 = pos + cast(want.len(), "int64")
+        set vend: int64 = index_of(slice(low, vstart, cast(low.len(), "int64")), "\r\n")
+        if vend < 0 { return "" }
+        rewrite vend += vstart
+        return slice(req_s, vstart, vend)
+    }
+
+    fun web_handle_http(ci: int64, a: bytes, n: int64) {
+        set h: bytes = a
+        set hend: int64 = this.web_hdr_end(h.cp(), n)
+        if hend < 0 { return } // wait for full headers
+        // Upgrade: websocket?
+        set ws_key: string = this.web_hdr_get(h.cp(), n, "Sec-WebSocket-Key")
+        if ws_key.len() == 0 {
+            // not a websocket upgrade -> mask like M3 (relay to the real site over TLS)
+            eprint("[ypwee] web: plain GET -> mask\n")
+            set mask_src: bytes = h.cp()
+            this.mt_mask_relay(ci, mask_src, n)
+            return
+        }
+        // accept = base64(sha1(key + GUID))
+        set sha_in: bytes = cast(ws_key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11", "bytes")
+        set accept: string = base64_encode(sha1(sha_in))
+        set resp: string = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + accept + "\r\nSec-WebSocket-Protocol: tproxy-v1\r\n\r\n"
+        this.send_client_str(ci, resp)
+        this.c_sock.set_i64(ci, 3)
+        this.c_state.set_i64(ci, 30)
+        this.web_welcomed.set_i64(ci, 0)
+        this.mt_state_drop(ci)
+        this.mt_phase.remove_i64(ci)
+        eprint("[ypwee] web: upgraded to websocket\n")
+        // leftover bytes after headers -> feed as first WS data
+        set rest_len: int64 = n - hend
+        if rest_len > 0 {
+            set rest: bytes = cast("", "bytes")
+            rest.reserve(rest_len)
+            set k: int64 = hend
+            while k < n {
+                rest.push(h[k])
+                rewrite k += 1
+            }
+            this.web_ws_data(ci, rest, rest_len)
+        } else {
+            this.rearm(ci)
+        }
+    }
+
+    // accumulate WS bytes, process complete frames
+    fun web_read(ci: int64) {
+        set idopt = this.c_id.get_i64(ci)
+        if idopt == null { return }
+        set rbuf: bytes = cast("", "bytes")
+        rbuf.reserve(16384)
+        set got: int64 = 0
+        sus {
+            set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
+            rewrite got = cs.read_bytes(rbuf.as_ptr(), 16384)
+        } catch {
+            this.drop_client(ci)
+            return
+        }
+        if got <= 0 {
+            this.drop_client(ci)
+            return
+        }
+        this.c_idletick.set_i64(ci, this.tick)
+        set prev: bytes = this.mt_state_get(ci)
+        set prev_len: int64 = this.mt_len_get2(ci)
+        set acc: bytes = cast("", "bytes")
+        acc.reserve(prev_len + got)
+        set k: int64 = 0
+        while k < prev_len {
+            acc.push(prev[k])
+            rewrite k += 1
+        }
+        set k2: int64 = 0
+        while k2 < got {
+            acc.push(rbuf[k2])
+            rewrite k2 += 1
+        }
+        rewrite prev_len += got
+        if prev_len > MT_MAX_ACC {
+            this.drop_client(ci)
+            return
+        }
+        this.mt_state_set(ci, acc, prev_len)
+        set acc2: bytes = this.mt_state_get(ci)
+        this.web_ws_data(ci, acc2, prev_len)
+    }
+
+    // process complete WebSocket frames from acc
+    fun web_ws_data(ci: int64, acc: bytes, n: int64) {
+        set a: bytes = acc
+        set pos: int64 = 0
+        set progressed: bool = true
+        while progressed && pos < n {
+            rewrite progressed = false
+            // build sub-buffer starting at pos (byte-level, no slice())
+            set subn: int64 = n - pos
+            set sub: bytes = cast("", "bytes")
+            sub.reserve(subn)
+            set q: int64 = pos
+            while q < n {
+                sub.push(a[q])
+                rewrite q += 1
+            }
+            set h = ws_parse(sub.cp(), subn)
+            if h.total < 0 { break }
+            if h.total > subn { break }
+            set frame_b: bytes = sub.cp()
+            this.web_on_message(ci, frame_b, h)
+            rewrite pos += h.total
+            rewrite progressed = true
+        }
+        // keep leftover
+        set rest_len: int64 = n - pos
+        set rest: bytes = cast("", "bytes")
+        if rest_len > 0 {
+            rest.reserve(rest_len)
+            set k3: int64 = pos
+            while k3 < n {
+                rest.push(a[k3])
+                rewrite k3 += 1
+            }
+        }
+        this.mt_state_set(ci, rest, rest_len)
+        this.rearm(ci)
+    }
+
+    // one complete WS frame: extract message, parse carrier frames inside
+    fun web_on_message(ci: int64, frame: bytes, hdr: WsFrame) {
+        set f: bytes = frame.cp()
+        // control frames
+        if hdr.opcode == 8 {
+            this.drop_client(ci)
+            return
+        }
+        if hdr.opcode == 9 {
+            // ping -> pong
+            set pl: bytes = ws_payload(f, hdr)
+            set out: bytes = ws_build(10, pl)
+            this.mt_send_raw(ci, out)
+            return
+        }
+        if hdr.opcode != 2 { return } // binary only
+        set msg: bytes = ws_payload(f, hdr)
+        set mn: int64 = cast(msg.len(), "int64")
+        if mn > 1052672 { // 1MB + 8 header
+            this.drop_client(ci)
+            return
+        }
+        set off: int64 = 0
+        while off + 8 <= mn {
+            set w = wf_parse(msg.cp(), mn, off)
+            if !w.ok { break }
+            if off + 8 + w.plen > mn { break }
+            set payload: bytes = cast("", "bytes")
+            payload.reserve(w.plen)
+            set q: int64 = off + 8
+            while q < off + 8 + w.plen {
+                payload.push(msg[q])
+                rewrite q += 1
+            }
+            this.web_on_frame(ci, w, payload)
+            rewrite off += 8 + w.plen
+        }
+    }
+
+    fun web_on_frame(ci: int64, w: Wf, payload: bytes) {
+        set welcomed: int64 = this.web_welcomed.get_i64(ci) ?? 0
+        if welcomed == 0 {
+            if w.ftype != 16 || w.sid != 0 || w.plen != 1 { 
+                this.drop_client(ci)
+                return
+            }
+            // HELLO v1 -> WELCOME alone
+            set empty: bytes = cast("", "bytes")
+            set wframe: bytes = wf_build(17, 0, empty)
+            set out: bytes = ws_build(2, wframe)
+            if !this.mt_send_raw(ci, out) {
+                this.drop_client(ci)
+                return
+            }
+            this.web_welcomed.set_i64(ci, 1)
+            return
+        }
+        if w.sid == 0 {
+            if w.ftype == 6 { return } // PONG: ignore
+            this.drop_client(ci)
+            return
+        }
+        set mapkey: int64 = ci * 16777216 + w.sid
+        if w.ftype == 1 {
+            // OPEN: dial the MTProto backend (our own listener)
+            set backend: string = this.cfg.mtproto_port
+            sus {
+                set up = tcp_connect(backend, this.cfg.hs_timeout_s * 1000)
+                up.set_nonblocking(true)
+                rewrite this.next_key += 1
+                set uk: int64 = this.next_key
+                this.poller.add_stream(ref up, POLL_READABLE, cast(uk, "uint64"))
+                this.c_upkey.set_i64(ci, uk)
+                this.u_id.set_i64(uk, cast(up.id, "int64"))
+                this.u_ci.set_i64(uk, ci)
+                this.c_state.set_i64(ci, 10)
+                this.c_idletick.set_i64(ci, this.tick)
+                this.web_sid_uk.set_i64(mapkey, uk)
+                this.web_uk_sid.set_i64(uk, mapkey)
+            } catch {
+                set empty: bytes = cast("", "bytes")
+                set cf: bytes = wf_build(3, w.sid, empty)
+                this.mt_send_raw(ci, ws_build(2, cf))
+                return
+            }
+            return
+        }
+        set ukopt = this.web_sid_uk.get_i64(mapkey)
+        if ukopt == null {
+            if w.ftype == 3 || w.ftype == 2 || w.ftype == 4 { return } // late frames for closed stream
+            this.drop_client(ci)
+            return
+        }
+        set uk: int64 = ukopt ?? 0
+        if w.ftype == 2 {
+            // DATA -> backend (raw)
+            set usopt = this.u_id.get_i64(uk)
+            if usopt == null { return }
+            sus {
+                set us = init TcpStream(cast(usopt ?? 0, "uint64"))
+                us.write_bytes(payload.as_ptr(), cast(payload.len(), "int64"))
+                us.flush()
+            } catch { this.drop_client(ci) }
+            return
+        }
+        if w.ftype == 4 {
+            return // WINDOW: no flow control in v1 relay (small payloads)
+        }
+        if w.ftype == 3 {
+            // CLOSE: close backend, forget stream
+            set usopt2 = this.u_id.get_i64(uk)
+            if usopt2 != null {
+                sus {
+                    set us2 = init TcpStream(cast(usopt2 ?? 0, "uint64"))
+                    us2.close()
+                } catch { space }
+            }
+            this.u_id.remove_i64(uk)
+            this.u_ci.remove_i64(uk)
+            this.web_sid_uk.remove_i64(mapkey)
+            this.web_uk_sid.remove_i64(uk)
+            return
+        }
+        this.drop_client(ci)
+    }
+
+    // backend -> WS carrier: wrap into DATA frame of the right sid
+    fun web_backend_to_client(ci: int64, uk: int64, data: bytes, n: int64) {
+        set mkopt = this.web_uk_sid.get_i64(uk)
+        if mkopt == null { return }
+        set mapkey: int64 = mkopt ?? 0
+        set sid: int64 = mapkey - ci * 16777216
+        set df: bytes = wf_build(2, sid, data)
+        set out: bytes = ws_build(2, df)
+        this.mt_send_raw(ci, out)
     }
 
     // ===================== MTProto FakeTLS =====================
@@ -943,6 +1252,17 @@ public class Proxy {
 
     fun mt_phase_hello2(ci: int64, acc: bytes, acc_len: int64) {
         set a: bytes = acc
+        // WEB relay carrier: plain HTTP GET (not a TLS ClientHello)
+        if acc_len >= 4 {
+            set g: int64 = cast(a[0], "int64")
+            set e1: int64 = cast(a[1], "int64")
+            set t2: int64 = cast(a[2], "int64")
+            set sp: int64 = cast(a[3], "int64")
+            if g == 71 && e1 == 69 && t2 == 84 && sp == 32 {
+                this.web_handle_http(ci, a, acc_len)
+                return
+            }
+        }
         if acc_len < 11 { return }
         set reclen: int64 = cast(a[3], "int64") * 256 + cast(a[4], "int64")
         set total: int64 = 5 + reclen
