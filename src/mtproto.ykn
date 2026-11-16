@@ -298,3 +298,50 @@ public fun mt_server_welcome(client_random: bytes, session_id: bytes, secret_hex
     return out
 
 }
+
+
+// Generate a valid 64-byte DC-side obfuscated2 nonce:
+// - first byte not 0xef, first 4 bytes not a reserved pattern (HEAD/POST/GET /OPTI/0x02010316/dd/ee/ef),
+//   bytes 4..8 not all zero
+// - proto tag (secure 0xdddddddd) at 56..60, dc index i16 LE at 60..62
+public fun mt_gen_dc_nonce(dc: int64) -> bytes {
+    set n: bytes = cast("", "bytes")
+    set tries: int64 = 0
+    while tries < 32 && n.len() != 64 {
+        set raw: bytes = random_bytes(64)
+        set ok: bool = true
+        if raw[0] == 239u8 { rewrite ok = false }
+        if raw[0] == raw[1] && raw[1] == raw[2] && raw[2] == raw[3] {
+            if raw[0] == 221u8 || raw[0] == 238u8 || raw[0] == 239u8 { rewrite ok = false }
+        }
+        if raw[0] == 72u8 && raw[1] == 69u8 && raw[2] == 65u8 && raw[3] == 68u8 { rewrite ok = false }
+        if raw[0] == 80u8 && raw[1] == 79u8 && raw[2] == 83u8 && raw[3] == 84u8 { rewrite ok = false }
+        if raw[0] == 71u8 && raw[1] == 69u8 && raw[2] == 84u8 && raw[3] == 32u8 { rewrite ok = false }
+        if raw[0] == 79u8 && raw[1] == 80u8 && raw[2] == 84u8 && raw[3] == 73u8 { rewrite ok = false }
+        if raw[0] == 22u8 && raw[1] == 3u8 && raw[2] == 1u8 && raw[3] == 2u8 { rewrite ok = false }
+        if raw[4] == 0u8 && raw[5] == 0u8 && raw[6] == 0u8 && raw[7] == 0u8 { rewrite ok = false }
+        if ok { rewrite n = raw }
+        rewrite tries += 1
+    }
+    if n.len() != 64 {
+        set fb: bytes = random_bytes(64)
+        rewrite fb[0] = 65u8
+        rewrite fb[1] = 66u8
+        rewrite fb[2] = 67u8
+        rewrite fb[3] = 68u8
+        rewrite fb[4] = 1u8
+        rewrite fb[5] = 2u8
+        rewrite fb[6] = 3u8
+        rewrite fb[7] = 4u8
+        rewrite n = fb
+    }
+    rewrite n[56] = 221u8
+    rewrite n[57] = 221u8
+    rewrite n[58] = 221u8
+    rewrite n[59] = 221u8
+    rewrite n[60] = cast(dc, "uint8")
+    rewrite n[61] = 0u8
+    rewrite n[62] = 0u8
+    rewrite n[63] = 0u8
+    return n
+}

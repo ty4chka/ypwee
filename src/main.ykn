@@ -1,7 +1,7 @@
 load std.net: SocketPoller, POLL_READABLE, tcp_listen, tcp_connect
 load std.strings: byte_at, slice
 load std.hash.common: hex_to_bytes, bytes_to_hex
-load .mtproto: mt_secret_key, mt_secret_host, mt_faketls_verify, mt_obfs_client_key, mt_obfs_client_iv, mt_obfs_dc, mt_is_secure_header, mt_intermediate_payload_len, mt_tls_record_header, mt_server_welcome
+load .mtproto: mt_secret_key, mt_secret_host, mt_faketls_verify, mt_obfs_client_key, mt_obfs_client_iv, mt_obfs_dc, mt_is_secure_header, mt_intermediate_payload_len, mt_tls_record_header, mt_server_welcome, mt_gen_dc_nonce
 load .aes: Aes256Ctr
 
 static MT_MAX_ACC: int64 = 65536
@@ -76,6 +76,8 @@ public class Proxy {
     mt_uk_arr: int64[]        // parallel to mt_dec_arr/mt_enc_arr
     mt_dec_arr: Aes256Ctr[]   // client->proxy decryptor per uk
     mt_enc_arr: Aes256Ctr[]   // proxy->client encryptor per uk
+    mt_tge_arr: Aes256Ctr[]   // proxy->DC encryptor per uk
+    mt_tgd_arr: Aes256Ctr[]   // DC->proxy decryptor per uk
     last_chunk: string
     c_method_count: int64
     c_method_seen: int64
@@ -113,6 +115,8 @@ public class Proxy {
         rewrite this.mt_uk_arr = []
         rewrite this.mt_dec_arr = []
         rewrite this.mt_enc_arr = []
+        rewrite this.mt_tge_arr = []
+        rewrite this.mt_tgd_arr = []
         rewrite this.sock_l = null
         rewrite this.http_l = null
         rewrite this.last_chunk = ""
@@ -143,6 +147,7 @@ public class Proxy {
             this.poller.add_listener(ref l3, POLL_READABLE, KEY_MT_L)
             print("[ypwee] mtproto on " + this.cfg.mtproto_port + "\n")
         }
+        eprint("[ypwee] mt: entering poller loop\n")
         while true {
             set events = this.poller.wait(1000)
             rewrite this.tick += 1
@@ -188,6 +193,7 @@ public class Proxy {
     }
 
     fun accept_mt(ref listener: TcpListener) {
+        eprint("[ypwee] mt: accept_mt entry\n")
         if this.sec_window != this.tick {
             rewrite this.sec_window = this.tick
             rewrite this.sec_count = 0
@@ -215,9 +221,8 @@ public class Proxy {
         this.mt_hello_len.set_i64(ci, -1)
         this.poller.remove_listener(ref listener)
         this.poller.add_listener(ref listener, POLL_READABLE, KEY_MT_L)
-        this.mt_state_new(ci, "")
+        eprint("[ypwee] mt: accept ci=" + i64_to_string(ci) + "\n")
     }
-
     fun push_client(k: int64, id: int64, is_socks: bool) {
         rewrite this.cis += 1
         set ci: int64 = this.cis
@@ -809,6 +814,7 @@ public class Proxy {
     }
 
     fun mt_read(ci: int64) {
+        eprint("[ypwee] mt: read ci=" + i64_to_string(ci) + "\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
         set chunk: string = ""
@@ -824,6 +830,7 @@ public class Proxy {
             return
         }
         this.c_idletick.set_i64(ci, this.tick)
+        eprint("[ypwee] mt: chunk.len=" + i64_to_string(cast(chunk.len(), "int64")) + "\n")
         set prev: string = this.mt_state_get(ci)
         set acc: string = prev + chunk
         if acc.len() > MT_MAX_ACC {
@@ -945,21 +952,78 @@ public class Proxy {
         }
         set clear2: bytes = clear.cp()
         set dc: int64 = mt_obfs_dc(clear2)
-        // proxy->client stream: reverse bytes 8..55 of the frame
+        // proxy->client stream: reverse ONLY bytes 8..55 (first 8 and last 8 stay in place)
         set fcp: bytes = frame0.cp()
-        set fstr: string = cast(fcp, "string")
         set rev: bytes = cast("", "bytes")
         rev.reserve(64)
-        set ri: int64 = 63
-        while ri >= 0 {
-            rev.push(byte_at(fstr, ri))
+        set k0: int64 = 0
+        while k0 < 8 {
+            rev.push(fcp[k0])
+            rewrite k0 += 1
+        }
+        set ri: int64 = 55
+        while ri >= 8 {
+            rev.push(fcp[ri])
             rewrite ri -= 1
+        }
+        set k1: int64 = 56
+        while k1 < 64 {
+            rev.push(fcp[k1])
+            rewrite k1 += 1
         }
         set rev0: bytes = rev.cp()
         set rkey: bytes = mt_obfs_client_key(rev, secret)
         set riv: bytes = mt_obfs_client_iv(rev0)
         set enc = init Aes256Ctr(rkey, riv)
-        // connect to DC
+        // DC-side obfuscated2 nonce: tag dd/dd/dd/dd at 56..60, dc i16 LE at 60..62
+        set tg_nonce: bytes = mt_gen_dc_nonce(dc)
+        set tg_key: bytes = cast("", "bytes")
+        tg_key.reserve(32)
+        set q1: int64 = 8
+        while q1 < 40 {
+            tg_key.push(tg_nonce[q1])
+            rewrite q1 += 1
+        }
+        set tg_iv: bytes = cast("", "bytes")
+        tg_iv.reserve(16)
+        set q2: int64 = 40
+        while q2 < 56 {
+            tg_iv.push(tg_nonce[q2])
+            rewrite q2 += 1
+        }
+        set tg_enc = init Aes256Ctr(tg_key, tg_iv)
+        // DC->proxy stream: key+iv = reversed nonce[8..56]
+        set tg_dec_key: bytes = cast("", "bytes")
+        tg_dec_key.reserve(32)
+        set q3: int64 = 55
+        while q3 >= 24 {
+            tg_dec_key.push(tg_nonce[q3])
+            rewrite q3 -= 1
+        }
+        set tg_dec_iv: bytes = cast("", "bytes")
+        tg_dec_iv.reserve(16)
+        set q4: int64 = 23
+        while q4 >= 8 {
+            tg_dec_iv.push(tg_nonce[q4])
+            rewrite q4 -= 1
+        }
+        set tg_dec = init Aes256Ctr(tg_dec_key, tg_dec_iv)
+        // nonce wire form: first 56 bytes plain, last 8 encrypted with tg_enc
+        set nonce_copy: bytes = tg_nonce.cp()
+        set enc_nonce: bytes = tg_enc.apply(nonce_copy)
+        set send_buf: bytes = cast("", "bytes")
+        send_buf.reserve(64)
+        set q5: int64 = 0
+        while q5 < 56 {
+            send_buf.push(tg_nonce[q5])
+            rewrite q5 += 1
+        }
+        set q6: int64 = 56
+        while q6 < 64 {
+            send_buf.push(enc_nonce[q6])
+            rewrite q6 += 1
+        }
+        // connect to DC and send the nonce first
         set dcaddr: string = this.mt_dc_addr(dc)
         if dcaddr == "" {
             eprint("[ypwee] mtproto: unknown dc\n")
@@ -970,7 +1034,9 @@ public class Proxy {
         sus {
             set up = tcp_connect(dcaddr, this.cfg.hs_timeout_s * 1000)
             up.set_nonblocking(true)
-            this.start_mt_relay(ci, up, dec, enc, dc)
+            up.write_bytes(send_buf.as_ptr(), cast(send_buf.len(), "int64"))
+            up.flush()
+            this.start_mt_relay(ci, up, dec, enc, tg_enc, tg_dec, dc)
             rewrite connected = 1
         } catch {
             rewrite connected = 0
@@ -980,16 +1046,15 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        // consume header, forward leftover decrypted payload to DC
+        // consume header; leftover is FakeTLS records -> phase 2 parser (no blind decrypt)
         set rest_enc: string = slice(acc, 64, acc.len())
         this.mt_state_new(ci, "")
         this.mt_phase.set_i64(ci, 2)
         if rest_enc.len() > 0 {
-            set rest_b: bytes = cast(rest_enc, "bytes")
-            set payload: bytes = dec.apply(rest_b)
-            this.mt_dc_write(ci, payload)
+            this.mt_phase_relay_client(ci, rest_enc)
+        } else {
+            this.rearm(ci)
         }
-        this.rearm(ci)
     }
 
     fun mt_dc_addr(dc: int64) -> string {
@@ -1001,7 +1066,7 @@ public class Proxy {
         return ""
     }
 
-    fun start_mt_relay(ci: int64, upstream: TcpStream, dec: Aes256Ctr, enc: Aes256Ctr, dc: int64) {
+    fun start_mt_relay(ci: int64, upstream: TcpStream, dec: Aes256Ctr, enc: Aes256Ctr, tg_enc: Aes256Ctr, tg_dec: Aes256Ctr, dc: int64) {
         rewrite this.next_key += 1
         set uk: int64 = this.next_key
         this.poller.add_stream(ref upstream, POLL_READABLE, cast(uk, "uint64"))
@@ -1016,6 +1081,8 @@ public class Proxy {
         this.mt_uk_arr.push(uk)
         this.mt_dec_arr.push(dec)
         this.mt_enc_arr.push(enc)
+        this.mt_tge_arr.push(tg_enc)
+        this.mt_tgd_arr.push(tg_dec)
         eprint("[ypwee] mtproto: dc " + i64_to_string(dc) + " connected\n")
     }
 
@@ -1093,6 +1160,8 @@ public class Proxy {
                 rewrite this.mt_uk_arr[w] = this.mt_uk_arr[i]
                 rewrite this.mt_dec_arr[w] = this.mt_dec_arr[i]
                 rewrite this.mt_enc_arr[w] = this.mt_enc_arr[i]
+                rewrite this.mt_tge_arr[w] = this.mt_tge_arr[i]
+                rewrite this.mt_tgd_arr[w] = this.mt_tgd_arr[i]
                 rewrite w += 1
             }
             rewrite i += 1
@@ -1101,6 +1170,8 @@ public class Proxy {
             this.mt_uk_arr.pop()
             this.mt_dec_arr.pop()
             this.mt_enc_arr.pop()
+            this.mt_tge_arr.pop()
+            this.mt_tgd_arr.pop()
         }
     }
 
@@ -1112,9 +1183,21 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
+        set tge_idx: int64 = -1
+        set scan4: int64 = 0
+        while scan4 < this.mt_uk_arr.len() {
+            if this.mt_uk_arr[scan4] == uk { rewrite tge_idx = scan4; break }
+            rewrite scan4 += 1
+        }
+        if tge_idx < 0 {
+            this.drop_client(ci)
+            return
+        }
+        // proxy->DC: encrypt with the tg stream (continues after the 64-byte nonce)
+        set wire: bytes = this.mt_tge_arr[tge_idx].apply(payload)
         sus {
             set us = init TcpStream(cast(usopt ?? 0, "uint64"))
-            us.write_bytes(payload.as_ptr(), cast(payload.len(), "int64"))
+            us.write_bytes(wire.as_ptr(), cast(wire.len(), "int64"))
             us.flush()
         } catch {
             this.drop_client(ci)
@@ -1169,7 +1252,9 @@ public class Proxy {
             clear.push(byte_at(rstr, i))
             rewrite i += 1
         }
-        set cipher: bytes = this.mt_enc_arr[enc_idx].apply(clear)
+        // DC->proxy decrypt, then proxy->client encrypt
+        set dc_clear: bytes = this.mt_tgd_arr[enc_idx].apply(clear)
+        set cipher: bytes = this.mt_enc_arr[enc_idx].apply(dc_clear)
         // wrap into one TLS record (payload <= 16384 ok)
         set out: bytes = mt_tls_record_header(cipher.len())
         set cs2: string = cast(cipher, "string")

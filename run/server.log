@@ -1,0 +1,7 @@
+[ypwee] mode=all
+[ypwee] socks5 on 127.0.0.1:11080
+[ypwee] http on 127.0.0.1:11801
+[ypwee] mtproto on 127.0.0.1:11443
+[ypwee] mt: entering poller loop
+[ypwee] mt: accept_mt entry
+proot info: vpid 1: terminated with signal 11

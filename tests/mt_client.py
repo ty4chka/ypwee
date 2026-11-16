@@ -144,7 +144,11 @@ def main():
     enc = Ctr(enc_key, enc_iv)
     s.sendall(dec.apply(frame))
     print("[client] obfuscated2 header sent, dc", DC)
-    payload = struct.pack("<I", 20) + os.urandom(20)
+    # real unencrypted MTProto req_pq_multi#be7e8ef1 inside intermediate framing
+    body = struct.pack("<I", 0xBE7E8EF1) + os.urandom(16)
+    msg_id = int(time.time() * (1 << 32)) & ~3
+    mt_msg = struct.pack("<qqI", 0, msg_id, len(body)) + body
+    payload = struct.pack("<I", len(mt_msg)) + mt_msg
     tls = b"\x14\x03\x03\x00\x01\x01"
     rec = b"\x17\x03\x03" + struct.pack(">H", len(payload))
     s.sendall(tls + rec + dec.apply(payload))
