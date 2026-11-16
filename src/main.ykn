@@ -166,7 +166,10 @@ public class Proxy {
                         sus { this.accept_mt(ref l3c) } catch { space }
                     }
                 }
-                if ev.key >= 1000u64 { this.on_readable(ev.key) }
+                if ev.key >= 1000u64 {
+                    eprint("[ypwee] mt: ev key=" + i64_to_string(cast(ev.key, "int64")) + (if ev.readable { " R" } else { "" }) + (if ev.is_error { " E" } else { "" }) + "\n")
+                    this.on_readable(ev.key)
+                }
             }
             this.expire()
         }
