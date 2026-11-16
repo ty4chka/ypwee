@@ -67,7 +67,8 @@ public class Proxy {
     http_l: TcpListener?
     mt_l: TcpListener?
     mt_ci_arr: int64[]                // parallel arrays for mt per-ci state
-    mt_acc_arr: string[]
+    mt_acc_arr: bytes[]               // raw byte accumulator (string ops unreliable on pinned toolchain)
+    mt_acc_len_arr: int64[]           // manual byte length of each accumulator
     mt_dc: HashMap<int64, int64>      // ci -> dc id
     mt_uk: HashMap<int64, int64>      // ci -> upstream key
     mt_phase: HashMap<int64, int64>   // ci -> phase (0 hello, 1 obfs2, 2 relay)
@@ -107,6 +108,7 @@ public class Proxy {
         rewrite this.u_ci = init HashMap<int64, int64>()
         rewrite this.mt_ci_arr = []
         rewrite this.mt_acc_arr = []
+        rewrite this.mt_acc_len_arr = []
         rewrite this.mt_dc = init HashMap<int64, int64>()
         rewrite this.mt_uk = init HashMap<int64, int64>()
         rewrite this.mt_phase = init HashMap<int64, int64>()
@@ -772,9 +774,11 @@ public class Proxy {
 
     // ===================== MTProto FakeTLS =====================
 
-    fun mt_state_new(ci: int64, acc: string) {
+    fun mt_state_new(ci: int64, acc: bytes) {
+        set n: int64 = cast(acc.len(), "int64")
         this.mt_ci_arr.push(ci)
         this.mt_acc_arr.push(acc)
+        this.mt_acc_len_arr.push(n)
     }
 
     fun mt_state_idx(ci: int64) -> int64 {
@@ -786,16 +790,28 @@ public class Proxy {
         return -1
     }
 
-    fun mt_state_get(ci: int64) -> string {
+    fun mt_state_get(ci: int64) -> bytes {
         set i: int64 = this.mt_state_idx(ci)
-        if i < 0 { return "" }
+        if i < 0 { return cast("", "bytes") }
         return this.mt_acc_arr[i]
     }
 
-    fun mt_state_set(ci: int64, acc: string) {
+    fun mt_len_get2(ci: int64) -> int64 {
         set i: int64 = this.mt_state_idx(ci)
-        if i < 0 { this.mt_state_new(ci, acc); return }
+        if i < 0 { return 0 }
+        return this.mt_acc_len_arr[i]
+    }
+
+    fun mt_state_set(ci: int64, acc: bytes, acc_len: int64) {
+        set i: int64 = this.mt_state_idx(ci)
+        if i < 0 {
+            this.mt_ci_arr.push(ci)
+            this.mt_acc_arr.push(acc)
+            this.mt_acc_len_arr.push(acc_len)
+            return
+        }
         rewrite this.mt_acc_arr[i] = acc
+        rewrite this.mt_acc_len_arr[i] = acc_len
     }
 
     fun mt_state_drop(ci: int64) {
@@ -807,12 +823,14 @@ public class Proxy {
         while j < n {
             rewrite this.mt_ci_arr[w] = this.mt_ci_arr[j]
             rewrite this.mt_acc_arr[w] = this.mt_acc_arr[j]
+            rewrite this.mt_acc_len_arr[w] = this.mt_acc_len_arr[j]
             rewrite w += 1
             rewrite j += 1
         }
         while this.mt_ci_arr.len() > w {
             this.mt_ci_arr.pop()
             this.mt_acc_arr.pop()
+            this.mt_acc_len_arr.pop()
         }
     }
 
@@ -820,28 +838,43 @@ public class Proxy {
         eprint("[ypwee] mt: read ci=" + i64_to_string(ci) + "\n")
         set idopt = this.c_id.get_i64(ci)
         if idopt == null { return }
-        set chunk: string = ""
+        set rbuf: bytes = cast("", "bytes")
+        rbuf.reserve(16384)
+        set got: int64 = 0
         sus {
             set cs = init TcpStream(cast(idopt ?? 0, "uint64"))
-            rewrite chunk = cs.read(16384)
+            rewrite got = cs.read_bytes(rbuf.as_ptr(), 16384)
         } catch {
             this.drop_client(ci)
             return
         }
-        if chunk.len() == 0 {
+        if got <= 0 {
             this.drop_client(ci)
             return
         }
         this.c_idletick.set_i64(ci, this.tick)
-        eprint("[ypwee] mt: chunk.len=" + i64_to_string(cast(chunk.len(), "int64")) + "\n")
-        set prev: string = this.mt_state_get(ci)
-        set acc: string = prev + chunk
-        if acc.len() > MT_MAX_ACC {
+        eprint("[ypwee] mt: chunk got=" + i64_to_string(got) + "\n")
+        set prev: bytes = this.mt_state_get(ci)
+        set prev_len: int64 = this.mt_len_get2(ci)
+        set acc: bytes = cast("", "bytes")
+        acc.reserve(prev_len + got)
+        set k: int64 = 0
+        while k < prev_len {
+            acc.push(prev[k])
+            rewrite k += 1
+        }
+        set k2: int64 = 0
+        while k2 < got {
+            acc.push(rbuf[k2])
+            rewrite k2 += 1
+        }
+        rewrite prev_len += got
+        if prev_len > MT_MAX_ACC {
             this.drop_client(ci)
             return
         }
-        this.mt_state_set(ci, acc)
-        this.mt_step(ci)
+        this.mt_state_set(ci, acc, prev_len)
+        this.mt_step2(ci, prev_len)
         // oneshot poller: перезаряжаем клиентский сокет после каждого чтения
         this.rearm(ci)
     }
@@ -861,57 +894,64 @@ public class Proxy {
         return ok
     }
 
-    fun mt_step(ci: int64) {
-        set acc: string = this.mt_state_get(ci)
+    fun mt_step2(ci: int64, acc_len: int64) {
+        set acc: bytes = this.mt_state_get(ci)
         set phase: int64 = this.mt_phase.get_i64(ci) ?? 0
 
         if phase == 0 {
-            this.mt_phase_hello(ci, acc)
+            this.mt_phase_hello2(ci, acc, acc_len)
             return
         }
         if phase == 1 {
-            this.mt_phase_obfs(ci, acc)
+            this.mt_phase_obfs2(ci, acc, acc_len)
             return
         }
         if phase == 2 {
-            this.mt_phase_relay_client(ci, acc)
+            this.mt_phase_relay_client2(ci, acc, acc_len)
             return
         }
     }
 
     // Phase 0: wait full TLS ClientHello, verify, answer ServerHello
-    fun mt_phase_hello(ci: int64, acc: string) {
-        eprint("[ypwee] mt: phase hello acc=" + i64_to_string(cast(acc.len(), "int64")) + "\n")
-        if acc.len() < 11 { return }
-        eprint("[ypwee] mt: hello bytes " + i64_to_string(cast(acc.len(), "int64")) + "\n")
-        set hb0: string = cast(acc, "string")
-        eprint("[ypwee] mt: hdr " + i64_to_string(cast(byte_at(hb0, 0), "int64")) + " " + i64_to_string(cast(byte_at(hb0, 1), "int64")) + " " + i64_to_string(cast(byte_at(hb0, 2), "int64")) + " " + i64_to_string(cast(byte_at(hb0, 3), "int64")) + " " + i64_to_string(cast(byte_at(hb0, 4), "int64")) + "\n")
-        set reclen: int64 = cast(byte_at(acc, 3), "int64") * 256 + cast(byte_at(acc, 4), "int64")
+    fun mt_phase_hello2(ci: int64, acc: bytes, acc_len: int64) {
+        eprint("[ypwee] mt: phase hello acc=" + i64_to_string(acc_len) + "\n")
+        set a: bytes = acc
+        if acc_len < 11 { return }
+        set reclen: int64 = cast(a[3], "int64") * 256 + cast(a[4], "int64")
         set total: int64 = 5 + reclen
-        eprint("[ypwee] mt: reclen=" + i64_to_string(reclen) + " rest=" + i64_to_string(cast(acc.len() - total, "int64")) + "\n")
-        if acc.len() < total { return }
-        set ch: bytes = cast(slice(acc, 0, total), "bytes")
+        if acc_len < total { return }
         set secret: string = this.cfg.mtproto_secret
         set host: string = mt_secret_host(secret)
-        if !mt_faketls_verify(ch, secret, host) {
+        set verify_src: bytes = a.cp()
+        if !mt_faketls_verify(verify_src, secret, host) {
             eprint("[ypwee] mtproto: ClientHello verify failed\n")
             this.drop_client(ci)
             return
         }
         // client random at offset 11
-        set cr0: bytes = cast(slice(acc, 11, 43), "bytes")
-        set cr: bytes = cr0.cp()
+        set cr: bytes = cast("", "bytes")
+        cr.reserve(32)
+        set k: int64 = 11
+        while k < 43 {
+            cr.push(a[k])
+            rewrite k += 1
+        }
         // session id: after random: offset 43 = len byte, then session id
-        set sid_len: int64 = cast(byte_at(acc, 43), "int64")
+        set sid_len: int64 = cast(a[43], "int64")
         set sid_end: int64 = 44 + sid_len
-        if acc.len() < sid_end {
+        if acc_len < sid_end {
             this.drop_client(ci)
             return
         }
-        set sid: bytes = cast(slice(acc, 44, sid_end), "bytes")
+        set sid: bytes = cast("", "bytes")
+        sid.reserve(sid_len)
+        set k2: int64 = 44
+        while k2 < sid_end {
+            sid.push(a[k2])
+            rewrite k2 += 1
+        }
         set noise_mean: int64 = this.cfg.mtproto_noise_mean
-        set cr_s0: string = cast(cr0, "string")
-        set noise: int64 = noise_mean - this.cfg.mtproto_noise_jitter + cast(byte_at(cr_s0, 0), "int64") % (2 * this.cfg.mtproto_noise_jitter + 1)
+        set noise: int64 = noise_mean - this.cfg.mtproto_noise_jitter + cast(a[11], "int64") % (2 * this.cfg.mtproto_noise_jitter + 1)
         if noise < 1000 { rewrite noise = 1000 }
         set welcome: bytes = mt_server_welcome(cr, sid, secret, noise)
         if !this.mt_send_raw(ci, welcome) {
@@ -919,23 +959,51 @@ public class Proxy {
             return
         }
         // consume ClientHello
-        set rest: string = slice(acc, total, acc.len())
-        this.mt_state_set(ci, rest)
+        set rest: bytes = cast("", "bytes")
+        set rest_len: int64 = acc_len - total
+        if rest_len > 0 {
+            rest.reserve(rest_len)
+            set k3: int64 = total
+            while k3 < acc_len {
+                rest.push(a[k3])
+                rewrite k3 += 1
+            }
+        }
+        this.mt_state_set(ci, rest, rest_len)
         this.mt_phase.set_i64(ci, 1)
         this.mt_hello_len.set_i64(ci, total)
-        if rest.len() > 0 {
-            this.mt_phase_obfs(ci, rest)
+        if rest_len > 0 {
+            set rest2: bytes = this.mt_state_get(ci)
+            this.mt_phase_obfs2(ci, rest2, rest_len)
         }
     }
 
-    // Phase 1: wait 64-byte obfuscated2 header, decrypt, verify, connect DC
-    fun mt_phase_obfs(ci: int64, acc: string) {
-        eprint("[ypwee] mt: phase obfs acc=" + i64_to_string(cast(acc.len(), "int64")) + "\n")
-        if acc.len() < 64 { return }
-        set frame0: bytes = cast(slice(acc, 0, 64), "bytes")
-        set frame: bytes = frame0.cp()
+    fun mt_phase_obfs2(ci: int64, acc: bytes, acc_len: int64) {
+        eprint("[ypwee] mt: phase obfs acc=" + i64_to_string(acc_len) + "\n")
+        set a: bytes = acc
+        // skip leading ChangeCipherSpec records (type 20) before the obfs2 frame
+        set pos: int64 = 0
+        set scanning: bool = true
+        while scanning && pos + 5 <= acc_len {
+            set t0: int64 = cast(a[pos], "int64")
+            if t0 == 20 {
+                set l0: int64 = cast(a[pos + 3], "int64") * 256 + cast(a[pos + 4], "int64")
+                rewrite pos = pos + 5 + l0
+            } else {
+                rewrite scanning = false
+            }
+        }
+        if acc_len - pos < 64 { return }
+        set frame0: bytes = cast("", "bytes")
+        frame0.reserve(64)
+        set fk: int64 = pos
+        while fk < pos + 64 {
+            frame0.push(a[fk])
+            rewrite fk += 1
+        }
         set secret: string = this.cfg.mtproto_secret
-        set key: bytes = mt_obfs_client_key(frame, secret)
+        set key_src: bytes = frame0.cp()
+        set key: bytes = mt_obfs_client_key(key_src, secret)
         set frame2: bytes = frame0.cp()
         set iv: bytes = mt_obfs_client_iv(frame2)
         if key.len() != 32 {
@@ -956,22 +1024,21 @@ public class Proxy {
         set clear2: bytes = clear.cp()
         set dc: int64 = mt_obfs_dc(clear2)
         // proxy->client stream: reverse ONLY bytes 8..55 (first 8 and last 8 stay in place)
-        set fcp: bytes = frame0.cp()
         set rev: bytes = cast("", "bytes")
         rev.reserve(64)
         set k0: int64 = 0
         while k0 < 8 {
-            rev.push(fcp[k0])
+            rev.push(frame0[k0])
             rewrite k0 += 1
         }
         set ri: int64 = 55
         while ri >= 8 {
-            rev.push(fcp[ri])
+            rev.push(frame0[ri])
             rewrite ri -= 1
         }
         set k1: int64 = 56
         while k1 < 64 {
-            rev.push(fcp[k1])
+            rev.push(frame0[k1])
             rewrite k1 += 1
         }
         set rev0: bytes = rev.cp()
@@ -1050,11 +1117,21 @@ public class Proxy {
             return
         }
         // consume header; leftover is FakeTLS records -> phase 2 parser (no blind decrypt)
-        set rest_enc: string = slice(acc, 64, acc.len())
-        this.mt_state_new(ci, "")
+        set rest_len: int64 = acc_len - pos - 64
+        set rest: bytes = cast("", "bytes")
+        if rest_len > 0 {
+            rest.reserve(rest_len)
+            set k3: int64 = pos + 64
+            while k3 < acc_len {
+                rest.push(a[k3])
+                rewrite k3 += 1
+            }
+        }
+        this.mt_state_set(ci, rest, rest_len)
         this.mt_phase.set_i64(ci, 2)
-        if rest_enc.len() > 0 {
-            this.mt_phase_relay_client(ci, rest_enc)
+        if rest_len > 0 {
+            set rest2: bytes = this.mt_state_get(ci)
+            this.mt_phase_relay_client2(ci, rest2, rest_len)
         } else {
             this.rearm(ci)
         }
@@ -1091,16 +1168,16 @@ public class Proxy {
     }
 
     // client -> DC: unwrap TLS records, decrypt with dec, write raw to DC
-    fun mt_phase_relay_client(ci: int64, acc: string) {
-        eprint("[ypwee] mt: relay_client acc_len=" + i64_to_string(cast(acc.len(), "int64")) + "\n")
+    fun mt_phase_relay_client2(ci: int64, acc: bytes, n: int64) {
+        eprint("[ypwee] mt: relay_client n=" + i64_to_string(n) + "\n")
+        set a: bytes = acc
         // process as many complete TLS records as available
         set pos: int64 = 0
-        set n: int64 = acc.len()
         while pos + 5 <= n {
-            set t0: int64 = cast(byte_at(acc, pos), "int64")
+            set t0: int64 = cast(a[pos], "int64")
             if t0 == 20 {
                 // ChangeCipherSpec record: skip
-                set l0: int64 = cast(byte_at(acc, pos + 3), "int64") * 256 + cast(byte_at(acc, pos + 4), "int64")
+                set l0: int64 = cast(a[pos + 3], "int64") * 256 + cast(a[pos + 4], "int64")
                 rewrite pos = pos + 5 + l0
                 continue
             }
@@ -1109,9 +1186,15 @@ public class Proxy {
                 this.drop_client(ci)
                 return
             }
-            set rlen: int64 = cast(byte_at(acc, pos + 3), "int64") * 256 + cast(byte_at(acc, pos + 4), "int64")
+            set rlen: int64 = cast(a[pos + 3], "int64") * 256 + cast(a[pos + 4], "int64")
             if pos + 5 + rlen > n { break }
-            set payload: bytes = cast(slice(acc, pos + 5, pos + 5 + rlen), "bytes")
+            set payload: bytes = cast("", "bytes")
+            payload.reserve(rlen)
+            set pk: int64 = pos + 5
+            while pk < pos + 5 + rlen {
+                payload.push(a[pk])
+                rewrite pk += 1
+            }
             rewrite pos = pos + 5 + rlen
             set clear: bytes = this.mt_dec?.apply(payload) ?? cast("", "bytes")
             if clear.len() == 0 {
@@ -1120,8 +1203,17 @@ public class Proxy {
             }
             this.mt_dc_write(ci, clear)
         }
-        set rest: string = slice(acc, pos, n)
-        this.mt_state_set(ci, rest)
+        set rest_len: int64 = n - pos
+        set rest: bytes = cast("", "bytes")
+        if rest_len > 0 {
+            rest.reserve(rest_len)
+            set rk: int64 = pos
+            while rk < n {
+                rest.push(a[rk])
+                rewrite rk += 1
+            }
+        }
+        this.mt_state_set(ci, rest, rest_len)
         this.rearm(ci)
     }
 
