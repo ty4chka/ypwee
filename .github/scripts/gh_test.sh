@@ -12,11 +12,7 @@ sudo ln -sf /usr/lib/llvm-22/bin/llvm-ar /usr/local/bin/llvm-ar
 sudo ln -sf /usr/bin/ld.lld-22 /usr/local/bin/ld.lld
 
 # 2. Yukino toolchain (PINNED + sret patch for aarch64 ABI)
-if [ ! -x /tmp/yukino/target/release/yukic ]; then
-  git clone https://github.com/yukitsuri/yukino /tmp/yukino
-  (cd /tmp/yukino \
-    && git fetch --depth 1 origin "$YUKINO_REF" && git checkout -q "$YUKINO_REF" \
-    && python3 - <<'PY'
+cat > /tmp/patch_sret.py <<'PYEOF'
 import re
 targets = {
     "crates/yukic-codegen/src/intrinsic.rs": [
@@ -33,8 +29,17 @@ for path, pats in targets.items():
         s, n = re.subn(pat, "", s)
         print("patched", path, pat[:40], n)
         open(path, "w", encoding="utf-8").write(s)
-PY
-    && cargo build --release 2>&1 | tail -5)
+PYEOF
+
+if [ ! -x /tmp/yukino/target/release/yukic ]; then
+  git clone https://github.com/yukitsuri/yukino /tmp/yukino
+  (
+    cd /tmp/yukino
+    git fetch --depth 1 origin "$YUKINO_REF"
+    git checkout -q "$YUKINO_REF"
+    python3 /tmp/patch_sret.py
+    cargo build --release 2>&1 | tail -5
+  )
 fi
 sudo cp /tmp/yukino/target/release/yukic /tmp/yukino/target/release/yukino /usr/local/bin/
 yukic --version
@@ -61,7 +66,6 @@ chmod +x ypwee-ci.bin
 SRV=$!
 sleep 2
 YPWEE_SECRET=ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d YPWEE_ADDR=127.0.0.1:1443 python3 tests/mt_client.py 2>&1 | tee client.log
-RC=$?
 kill $SRV 2>/dev/null || true
 echo "--- server.log:"; cat server.log
 RESULT=$(grep -c "E2E RELAY OK" client.log || true)
