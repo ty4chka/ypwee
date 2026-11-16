@@ -73,11 +73,11 @@ public class Proxy {
     mt_phase: HashMap<int64, int64>   // ci -> phase (0 hello, 1 obfs2, 2 relay)
     mt_hello_len: HashMap<int64, int64> // ci -> expected ClientHello total len (or -1)
     mt_dc_uk: HashMap<int64, int64>   // upstream key -> ci
-    mt_uk_arr: int64[]        // parallel to mt_dec_arr/mt_enc_arr
-    mt_dec_arr: Aes256Ctr[]   // client->proxy decryptor per uk
-    mt_enc_arr: Aes256Ctr[]   // proxy->client encryptor per uk
-    mt_tge_arr: Aes256Ctr[]   // proxy->DC encryptor per uk
-    mt_tgd_arr: Aes256Ctr[]   // DC->proxy decryptor per uk
+    // single active MT session (class-field state; indexed Aes256Ctr[] apply broke on pinned toolchain)
+    mt_dec: Aes256Ctr?        // client->proxy stream
+    mt_enc: Aes256Ctr?        // proxy->client stream
+    mt_tge: Aes256Ctr?        // proxy->DC stream
+    mt_tgd: Aes256Ctr?        // DC->proxy stream
     last_chunk: string
     c_method_count: int64
     c_method_seen: int64
@@ -112,11 +112,10 @@ public class Proxy {
         rewrite this.mt_phase = init HashMap<int64, int64>()
         rewrite this.mt_hello_len = init HashMap<int64, int64>()
         rewrite this.mt_dc_uk = init HashMap<int64, int64>()
-        rewrite this.mt_uk_arr = []
-        rewrite this.mt_dec_arr = []
-        rewrite this.mt_enc_arr = []
-        rewrite this.mt_tge_arr = []
-        rewrite this.mt_tgd_arr = []
+        rewrite this.mt_dec = null
+        rewrite this.mt_enc = null
+        rewrite this.mt_tge = null
+        rewrite this.mt_tgd = null
         rewrite this.sock_l = null
         rewrite this.http_l = null
         rewrite this.last_chunk = ""
@@ -1084,11 +1083,10 @@ public class Proxy {
         this.mt_dc.set_i64(ci, dc)
         this.mt_uk.set_i64(ci, uk)
         this.mt_dc_uk.set_i64(uk, ci)
-        this.mt_uk_arr.push(uk)
-        this.mt_dec_arr.push(dec)
-        this.mt_enc_arr.push(enc)
-        this.mt_tge_arr.push(tg_enc)
-        this.mt_tgd_arr.push(tg_dec)
+        rewrite this.mt_dec = dec
+        rewrite this.mt_enc = enc
+        rewrite this.mt_tge = tg_enc
+        rewrite this.mt_tgd = tg_dec
         eprint("[ypwee] mtproto: dc " + i64_to_string(dc) + " connected\n")
     }
 
@@ -1115,19 +1113,11 @@ public class Proxy {
             if pos + 5 + rlen > n { break }
             set payload: bytes = cast(slice(acc, pos + 5, pos + 5 + rlen), "bytes")
             rewrite pos = pos + 5 + rlen
-            set ukopt3 = this.mt_uk.get_i64(ci)
-            set uk3: int64 = ukopt3 ?? 0
-            set dec_idx: int64 = -1
-            set scan3: int64 = 0
-            while scan3 < this.mt_uk_arr.len() {
-                if this.mt_uk_arr[scan3] == uk3 { rewrite dec_idx = scan3; break }
-                rewrite scan3 += 1
-            }
-            if dec_idx < 0 {
+            set clear: bytes = this.mt_dec?.apply(payload) ?? cast("", "bytes")
+            if clear.len() == 0 {
                 this.drop_client(ci)
                 return
             }
-            set clear: bytes = this.mt_dec_arr[dec_idx].apply(payload)
             this.mt_dc_write(ci, clear)
         }
         set rest: string = slice(acc, pos, n)
@@ -1135,51 +1125,11 @@ public class Proxy {
         this.rearm(ci)
     }
 
-    fun mt_dec_of(ci: int64) -> Aes256Ctr? {
-        set ukopt = this.mt_uk.get_i64(ci)
-        set uk: int64 = ukopt ?? 0
-        if uk == 0 { return null }
-        set i: int64 = 0
-        while i < this.mt_uk_arr.len() {
-            if this.mt_uk_arr[i] == uk { return this.mt_dec_arr[i] }
-            rewrite i += 1
-        }
-        return null
-    }
-
-    fun mt_enc_of(ci: int64) -> Aes256Ctr? {
-        set ukopt = this.mt_uk.get_i64(ci)
-        set uk: int64 = ukopt ?? 0
-        if uk == 0 { return null }
-        set i: int64 = 0
-        while i < this.mt_uk_arr.len() {
-            if this.mt_uk_arr[i] == uk { return this.mt_enc_arr[i] }
-            rewrite i += 1
-        }
-        return null
-    }
-
     fun mt_drop_streams(uk: int64) {
-        set w: int64 = 0
-        set i: int64 = 0
-        while i < this.mt_uk_arr.len() {
-            if this.mt_uk_arr[i] != uk {
-                rewrite this.mt_uk_arr[w] = this.mt_uk_arr[i]
-                rewrite this.mt_dec_arr[w] = this.mt_dec_arr[i]
-                rewrite this.mt_enc_arr[w] = this.mt_enc_arr[i]
-                rewrite this.mt_tge_arr[w] = this.mt_tge_arr[i]
-                rewrite this.mt_tgd_arr[w] = this.mt_tgd_arr[i]
-                rewrite w += 1
-            }
-            rewrite i += 1
-        }
-        while this.mt_uk_arr.len() > w {
-            this.mt_uk_arr.pop()
-            this.mt_dec_arr.pop()
-            this.mt_enc_arr.pop()
-            this.mt_tge_arr.pop()
-            this.mt_tgd_arr.pop()
-        }
+        rewrite this.mt_dec = null
+        rewrite this.mt_enc = null
+        rewrite this.mt_tge = null
+        rewrite this.mt_tgd = null
     }
 
     fun mt_dc_write(ci: int64, payload: bytes) {
@@ -1191,18 +1141,12 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        set tge_idx: int64 = -1
-        set scan4: int64 = 0
-        while scan4 < this.mt_uk_arr.len() {
-            if this.mt_uk_arr[scan4] == uk { rewrite tge_idx = scan4; break }
-            rewrite scan4 += 1
-        }
-        if tge_idx < 0 {
+        // proxy->DC: encrypt with the tg stream (continues after the 64-byte nonce)
+        set wire: bytes = this.mt_tge?.apply(payload) ?? cast("", "bytes")
+        if wire.len() == 0 {
             this.drop_client(ci)
             return
         }
-        // proxy->DC: encrypt with the tg stream (continues after the 64-byte nonce)
-        set wire: bytes = this.mt_tge_arr[tge_idx].apply(payload)
         sus {
             set us = init TcpStream(cast(usopt ?? 0, "uint64"))
             us.write_bytes(wire.as_ptr(), cast(wire.len(), "int64"))
@@ -1242,18 +1186,6 @@ public class Proxy {
             return
         }
         eprint("[ypwee] mt: dc_data got=" + i64_to_string(got) + "\n")
-        set ukopt2 = this.mt_uk.get_i64(ci)
-        set uk2: int64 = ukopt2 ?? 0
-        set enc_idx: int64 = -1
-        set scan: int64 = 0
-        while scan < this.mt_uk_arr.len() {
-            if this.mt_uk_arr[scan] == uk2 { rewrite enc_idx = scan; break }
-            rewrite scan += 1
-        }
-        if enc_idx < 0 {
-            this.drop_client(ci)
-            return
-        }
         set clear: bytes = cast("", "bytes")
         clear.reserve(got)
         set i: int64 = 0
@@ -1262,8 +1194,16 @@ public class Proxy {
             rewrite i += 1
         }
         // DC->proxy decrypt, then proxy->client encrypt
-        set dc_clear: bytes = this.mt_tgd_arr[enc_idx].apply(clear)
-        set cipher: bytes = this.mt_enc_arr[enc_idx].apply(dc_clear)
+        set dc_clear: bytes = this.mt_tgd?.apply(clear) ?? cast("", "bytes")
+        if dc_clear.len() == 0 {
+            this.drop_client(ci)
+            return
+        }
+        set cipher: bytes = this.mt_enc?.apply(dc_clear) ?? cast("", "bytes")
+        if cipher.len() == 0 {
+            this.drop_client(ci)
+            return
+        }
         // wrap into one TLS record (payload <= 16384 ok)
         set out: bytes = mt_tls_record_header(cipher.len())
         rewrite i = 0
