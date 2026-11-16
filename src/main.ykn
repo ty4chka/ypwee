@@ -324,6 +324,7 @@ public class Proxy {
         if uiopt != null {
             set mtciopt = this.mt_dc_uk.get_i64(k)
             if mtciopt != null {
+                eprint("[ypwee] mt: dc readable k=" + i64_to_string(k) + "\n")
                 this.mt_relay_up_to_client(mtciopt ?? 0, k)
             } else {
                 this.relay_up_to_client(uiopt ?? 0, k)
@@ -1206,6 +1207,7 @@ public class Proxy {
 
     // DC -> client: read raw from DC, encrypt with enc, wrap into TLS record, send
     fun mt_relay_up_to_client(ci: int64, uk: int64) {
+        eprint("[ypwee] mt: relay_up ci=" + i64_to_string(ci) + " uk=" + i64_to_string(uk) + "\n")
         set usopt = this.u_id.get_i64(uk)
         if usopt == null { return }
         set csopt = this.c_id.get_i64(ci)
@@ -1232,6 +1234,7 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
+        eprint("[ypwee] mt: dc_data got=" + i64_to_string(got) + "\n")
         set ukopt2 = this.mt_uk.get_i64(ci)
         set uk2: int64 = ukopt2 ?? 0
         set enc_idx: int64 = -1
