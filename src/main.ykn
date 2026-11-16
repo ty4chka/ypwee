@@ -1070,7 +1070,8 @@ public class Proxy {
     fun start_mt_relay(ci: int64, upstream: TcpStream, dec: Aes256Ctr, enc: Aes256Ctr, tg_enc: Aes256Ctr, tg_dec: Aes256Ctr, dc: int64) {
         rewrite this.next_key += 1
         set uk: int64 = this.next_key
-        this.poller.add_stream(ref upstream, POLL_READABLE, cast(uk, "uint64"))
+        set reg_ok: bool = this.poller.add_stream(ref upstream, POLL_READABLE, cast(uk, "uint64"))
+        eprint("[ypwee] mt: dc poll reg ok=" + (if reg_ok { "y" } else { "n" }) + "\n")
         this.c_upkey.set_i64(ci, uk)
         this.c_state.set_i64(ci, 22)
         this.u_id.set_i64(uk, cast(upstream.id, "int64"))
