@@ -928,8 +928,20 @@ public class Proxy {
     // Phase 1: wait 64-byte obfuscated2 header, decrypt, verify, connect DC
     fun mt_phase_obfs(ci: int64, acc: string) {
         eprint("[ypwee] mt: phase obfs acc=" + i64_to_string(cast(acc.len(), "int64")) + "\n")
-        if acc.len() < 64 { return }
-        set frame0: bytes = cast(slice(acc, 0, 64), "bytes")
+        // skip leading ChangeCipherSpec records (type 20) before the obfs2 frame
+        set pos: int64 = 0
+        set scanning: bool = true
+        while scanning && pos + 5 <= acc.len() {
+            set t0: int64 = cast(byte_at(acc, pos), "int64")
+            if t0 == 20 {
+                set l0: int64 = cast(byte_at(acc, pos + 3), "int64") * 256 + cast(byte_at(acc, pos + 4), "int64")
+                rewrite pos = pos + 5 + l0
+            } else {
+                rewrite scanning = false
+            }
+        }
+        if acc.len() - pos < 64 { return }
+        set frame0: bytes = cast(slice(acc, pos, pos + 64), "bytes")
         set frame: bytes = frame0.cp()
         set secret: string = this.cfg.mtproto_secret
         set key: bytes = mt_obfs_client_key(frame, secret)
@@ -1047,7 +1059,7 @@ public class Proxy {
             return
         }
         // consume header; leftover is FakeTLS records -> phase 2 parser (no blind decrypt)
-        set rest_enc: string = slice(acc, 64, acc.len())
+        set rest_enc: string = slice(acc, pos + 64, acc.len())
         this.mt_state_new(ci, "")
         this.mt_phase.set_i64(ci, 2)
         if rest_enc.len() > 0 {
