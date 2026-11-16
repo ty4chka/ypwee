@@ -830,7 +830,8 @@ public class Proxy {
             return
         }
         this.c_idletick.set_i64(ci, this.tick)
-        eprint("[ypwee] mt: chunk.len=" + i64_to_string(cast(chunk.len(), "int64")) + "\n")
+        set dbg_b: bytes = cast(slice(chunk, 0, 16), "bytes")
+        eprint("[ypwee] mt: chunk.len=" + i64_to_string(cast(chunk.len(), "int64")) + " hex0=" + bytes_to_hex(ref dbg_b) + "\n")
         set prev: string = this.mt_state_get(ci)
         set acc: string = prev + chunk
         if acc.len() > MT_MAX_ACC {
@@ -941,6 +942,8 @@ public class Proxy {
             }
         }
         if acc.len() - pos < 64 { return }
+        set dbg_f: bytes = cast(slice(acc, pos, pos + 16), "bytes")
+        eprint("[ypwee] mt: obfs pos=" + i64_to_string(pos) + " frame0=" + bytes_to_hex(ref dbg_f) + "\n")
         set frame0: bytes = cast(slice(acc, pos, pos + 64), "bytes")
         set frame: bytes = frame0.cp()
         set secret: string = this.cfg.mtproto_secret
@@ -958,7 +961,8 @@ public class Proxy {
         set clear: bytes = dec.apply(frame3)
         set clear_chk: bytes = clear.cp()
         if !mt_is_secure_header(clear_chk) {
-            eprint("[ypwee] mtproto: obfs header not dd/dd/dd/dd\n")
+            set dbg_c: bytes = cast(slice(clear_s, 48, 64), "bytes")
+            eprint("[ypwee] mtproto: obfs header not dd/dd/dd/dd clear48=" + bytes_to_hex(ref dbg_c) + "\n")
             this.drop_client(ci)
             return
         }
