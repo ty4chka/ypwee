@@ -2,58 +2,140 @@
 
 <img src="assets/banner.svg" alt="ypwee" width="100%">
 
-<p>Маленький нативный прокси для Telegram — MTProto, SOCKS5 и WEB в одном бинарнике. Написан на <a href="https://github.com/yukitsuri/yukino">Yukino</a>.</p>
+<p>Один маленький нативный прокси для Telegram — MTProto, SOCKS5 и WEB в одном бинарнике.<br>Написан на <a href="https://github.com/yukitsuri/yukino">Yukino</a>.</p>
 
-<p><a href="README.md">English</a> · <b>Русский</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.es.md">Español</a> · <a href="README.tr.md">Türkçe</a> · <a href="README.fa.md">فارسی</a></p>
+<p><b>Русский</b> · <a href="README.md">English</a></p>
+
+<p>
+<img alt="tests" src="https://img.shields.io/badge/tests-44%2F44-brightgreen">
+<img alt="platforms" src="https://img.shields.io/badge/platforms-amd64%20%7C%20arm64-blue">
+<img alt="size" src="https://img.shields.io/badge/binary-2.6%20MB-lightgrey">
+</p>
 
 </div>
 
-> <b>Статус: pre-alpha, стадия дизайна.</b> Готового бинарника пока нет. README описывает цели и план.
+---
 
-<table>
-<tr><td align="center" width="25%"><img src="assets/card-mtproto.svg" width="240" alt="MTProto"></td><td align="center" width="25%"><img src="assets/card-socks5.svg" width="240" alt="SOCKS5"></td><td align="center" width="25%"><img src="assets/card-web.svg" width="240" alt="WEB"></td><td align="center" width="25%"><img src="assets/card-stealth.svg" width="240" alt="Stealth"></td></tr>
-<tr><td valign="top" align="center">Секреты <code>dd</code> / <code>ee</code>, FakeTLS, несколько пользователей.</td><td valign="top" align="center">Звонки Telegram. Пароль, ACL, лимиты.</td><td valign="top" align="center">Релей для WEB-прокси Telegram Desktop 7.1+ поверх обычного HTTPS.</td><td valign="top" align="center">Неверный секрет или проба? Отдаём настоящий сайт.</td></tr>
-</table>
+## Что это
 
-## Какие дыры нашли → что делает ypwee
+`ypwee` — прокси-сервер для Telegram. Один бинарник, один порт, один конфиг. Три протокола поднимаются одновременно и различаются по первым байтам соединения.
 
-<table>
-<tr><th width="50%">Слабое место существующих</th><th width="50%">ypwee</th></tr>
-<tr><td valign="top">Один протокол на инструмент. mtproto.zig: MTProto + WEB, но звонки не поддерживаются (нет SOCKS5); tg-ws-proxy-rs — локальный мост для Desktop.</td><td valign="top">MTProto, SOCKS5 и WEB в одном бинарнике, на одном порту, с одним конфигом.</td></tr>
-<tr><td valign="top">Тяжёлые сборки. По таблице самого mtproto.zig: Telemt ≈ 15 МБ / 423 crate, mtg ≈ 13 МБ.</td><td valign="top">Нативный бинарник на Yukino — без VM и tracing GC. Размер и RAM будем измерять и публиковать, а не обещать.</td></tr>
-<tr><td valign="top">Рост памяти при множестве удерживаемых соединений (tg-ws-proxy-rs, issues #97, #113).</td><td valign="top">Маленькое фиксированное состояние на соединение, регионы, soak-тесты в CI.</td></tr>
-<tr><td valign="top">Зависимость от сторонних списков в рантайме (tg-ws-proxy-rs может подтягивать список доменов Cloudflare с GitHub).</td><td valign="top">Автономность. Никаких загрузок при старте.</td></tr>
-<tr><td valign="top"><code>curl | sudo bash</code> как основной способ установки.</td><td valign="top">Релизы из GitHub Actions, SHA-256, provenance-аттестация, обычный tarball.</td></tr>
-<tr><td valign="top">SOCKS5 нельзя замаскировать под HTTPS.</td><td valign="top">Честно: SOCKS5 — по желанию, с авторизацией и лимитами.</td></tr>
-</table>
+| Протокол | Для чего |
+|---|---|
+| **MTProto** | прокси внутри Telegram (`dd`/`ee`-секреты, FakeTLS, несколько пользователей) |
+| **SOCKS5** | звонки Telegram, обычный SOCKS5 с паролем и ACL |
+| **WEB** | тип прокси «WEB» в Telegram Desktop 7.1+, поверх обычного HTTPS |
 
-## Как один порт обслуживает всё
+Плюс маскировка: если секрет неверный или пришёл сканер — соединение прозрачно уходит на настоящий сайт. Проверяющий видит обычный TLS-хендшейк.
 
-```mermaid
-flowchart LR
-  C([client]) --> P[":443 · SocketPoller"]
-  P --> S{"sniff first bytes"}
-  S -->|"0x05"| K["SOCKS5"]
-  S -->|"CONNECT"| H["HTTP proxy"]
-  S -->|"TLS + valid secret"| F["FakeTLS → MTProto"]
-  S -->|"TLS + relay host"| W["WEB relay"]
-  S -->|"anything else"| M["mask: real site"]
+## Установка
+
+Готовые бинарники — в [релизах](https://github.com/ty4chka/ypwee/releases). Никакого `curl | sudo bash`: скачал, распаковал, запустил.
+
+```bash
+# amd64
+curl -LO https://github.com/ty4chka/ypwee/releases/latest/download/ypwee-linux-amd64
+chmod +x ypwee-linux-amd64
+
+# arm64 (Raspberry Pi, VPS, телефоны)
+curl -LO https://github.com/ty4chka/ypwee/releases/latest/download/ypwee-linux-arm64
+chmod +x ypwee-linux-arm64
 ```
 
-## Дорожная карта
+Проверить целостность:
 
-- <b>M0</b> — дизайн, README, скелет CI
-- <b>M1</b> — SOCKS5 + HTTP CONNECT (минимальный срез; проверяет <code>std.net</code> + <code>SocketPoller</code>)
-- <b>M2</b> — MTProto obfuscated2 (нужен AES-256-CTR, его пока нет в <code>std.crypto</code> Yukino) + секреты <code>dd</code>/<code>ee</code>
-- <b>M3</b> — FakeTLS + маскировка от активных проб
-- <b>M4</b> — WEB-релей (WebSocket RFC 6455 + кадры моста Telegram)
-- <b>M5</b> — подписанные релизы, установщик, бенчмарки против mtg / Telemt / mtproto.zig
+```bash
+curl -LO https://github.com/ty4chka/ypwee/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS
+```
 
-## Источники и вдохновение
+## Запуск
 
-- [Yukino](https://github.com/yukitsuri/yukino) — language, `std.net`, `std.crypto`
-- [sleep3r/mtproto.zig](https://github.com/sleep3r/mtproto.zig) — MTProto + WEB relay in Zig (MIT)
-- [valnesfjord/tg-ws-proxy-rs](https://github.com/valnesfjord/tg-ws-proxy-rs) · [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) — WebSocket bridge
-- Telemt (Rust) · mtg (Go) · official MTProxy (C)
+Минимальный конфиг — файл `ypwee.conf` рядом с бинарником:
 
-*Лицензия: пока не выбрана (сам Yukino — Apache-2.0; код, портированный из MIT-проектов, сохраняет их уведомления).*
+```ini
+user = alice:мойПароль
+allow = *
+
+# секрет MTProto из @MTProxybot: dd + 32 hex-символа, либо ee + хост
+mtproto-secret = ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d
+mtproto-port = 0.0.0.0:443
+```
+
+```bash
+./ypwee-linux-amd64 ypwee.conf
+```
+
+В консоли появится:
+
+```
+[ypwee] socks5 on 127.0.0.1:1080
+[ypwee] http on 127.0.0.1:8081
+[ypwee] mtproto on 0.0.0.0:443
+```
+
+Дальше в Telegram: **Настройки → Продвинутые → Прокси → MTProto** и вводишь адрес сервера с портом и секретом.
+
+## Один порт — три протокола
+
+```
+клиент
+  │
+  ├─ 0x05 ────────────────► SOCKS5
+  ├─ CONNECT ─────────────► HTTP-прокси
+  ├─ TLS + верный секрет ─► FakeTLS → MTProto
+  ├─ TLS + relay-хост ────► WEB-релей
+  └─ что-то ещё ──────────► маска: настоящий сайт
+```
+
+## Конфиг
+
+| Ключ | Что задаёт | По умолчанию |
+|---|---|---|
+| `user` | логин:пароль SOCKS5, можно несколько строк | — |
+| `allow` | список разрешённых хостов, `*` — все | `*` |
+| `allow-private` | разрешить приватные адреса как цель | `false` |
+| `mtproto-secret` | секрет MTProto (`dd…` или `ee…`) | — |
+| `mtproto-port` | адрес и порт MTProto | — |
+| `socks5` | адрес и порт SOCKS5 | `127.0.0.1:1080` |
+| `http` | адрес и порт HTTP-прокси | `127.0.0.1:8081` |
+| `max-conns` | лимит соединений | `1024` |
+
+Полный список — в [`ypwee.example.toml`](ypwee.example.toml).
+
+## Сборка из исходников
+
+Нужен компилятор [Yukino](https://github.com/yukitsuri/yukino) (`yukic`) и `lld`.
+
+```bash
+git clone https://github.com/ty4chka/ypwee.git
+cd ypwee
+
+# тесты: 44/44
+yukic --test --entry src/main.ykn -o test.bin -- --error-limit=0
+chmod +x test.bin && ./test.bin
+
+# релизная сборка
+yukic --release --entry src/main.ykn -o ypwee -- --error-limit=0
+```
+
+Готовые сборки для amd64 и arm64 собираются автоматически при каждом пуше — см. [`.github/workflows/build.yml`](.github/workflows/build.yml).
+
+## Что проверено
+
+- **44/44 теста** — SHA-1, SHA-256, HMAC, base64/base64url (векторы RFC), AES-CTR (NIST), SOCKS5, HTTP CONNECT, MTProto, WS-фреймы
+- **e2e FakeTLS** — MTProto-хендшейк и релей против локального фейкового DC
+- **e2e WebSocket** — WEB-релей через прокси, полный цикл HELLO→WELCOME→OPEN→DATA
+- **анти-пробинг** — неверный секрет даёт настоящий TLS-ответ сайта
+
+Тесты гоняются на amd64 и arm64 в CI.
+
+## Чего пока нет
+
+- Проверки против **настоящего** DC Telegram с резидентного IP: датацентры игнорируют obfs2 с серверных адресов.
+- Подписанных релизов (cosign/provenance) — в планах.
+- Бенчмарков против mtg / Telemt / mtproto.zig — в планах.
+
+## Лицензия
+
+См. [LICENSE](LICENSE).

@@ -2,58 +2,140 @@
 
 <img src="assets/banner.svg" alt="ypwee" width="100%">
 
-<p>One small native proxy for Telegram — MTProto, SOCKS5 and WEB in a single binary. Written in <a href="https://github.com/yukitsuri/yukino">Yukino</a>.</p>
+<p>One small native proxy for Telegram — MTProto, SOCKS5 and WEB in a single binary.<br>Written in <a href="https://github.com/yukitsuri/yukino">Yukino</a>.</p>
 
-<p><b>English</b> · <a href="README.ru.md">Русский</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.es.md">Español</a> · <a href="README.tr.md">Türkçe</a> · <a href="README.fa.md">فارسی</a></p>
+<p><b>English</b> · <a href="README.ru.md">Русский</a></p>
+
+<p>
+<img alt="tests" src="https://img.shields.io/badge/tests-44%2F44-brightgreen">
+<img alt="platforms" src="https://img.shields.io/badge/platforms-amd64%20%7C%20arm64-blue">
+<img alt="size" src="https://img.shields.io/badge/binary-2.6%20MB-lightgrey">
+</p>
 
 </div>
 
-> <b>Status: M1–M3 complete.</b> SOCKS5 + HTTP CONNECT e2e-verified (M1). MTProto FakeTLS + obfuscated2 relay e2e-verified on amd64/arm64 CI against a local fake DC (M2, tag <code>v0.2.0-m2</code>). Anti-probe masking: wrong secret/garbage transparently relays to the real masking site (M3, tag <code>v0.3.0-m3</code>). Telegram DCs ignore obfs2 from datacenter IPs — real-DC test still pending from a residential IP. M4 (WEB relay) and M5 (signed releases, benchmarks) are next.
+---
 
-<table>
-<tr><td align="center" width="25%"><img src="assets/card-mtproto.svg" width="240" alt="MTProto"></td><td align="center" width="25%"><img src="assets/card-socks5.svg" width="240" alt="SOCKS5"></td><td align="center" width="25%"><img src="assets/card-web.svg" width="240" alt="WEB"></td><td align="center" width="25%"><img src="assets/card-stealth.svg" width="240" alt="Stealth"></td></tr>
-<tr><td valign="top" align="center">Secrets <code>dd</code> / <code>ee</code>, FakeTLS, several users.</td><td valign="top" align="center">Telegram calls. Password auth, ACL, rate limits.</td><td valign="top" align="center">Relay for the WEB proxy type of Telegram Desktop 7.1+, over ordinary HTTPS.</td><td valign="top" align="center">Wrong secret or a probe? The peer gets the real website.</td></tr>
-</table>
+## What it is
 
-## Gaps we found → what ypwee does
+`ypwee` is a proxy server for Telegram. One binary, one port, one config. Three protocols run at once and are told apart by the first bytes of a connection.
 
-<table>
-<tr><th width="50%">Gap in existing proxies</th><th width="50%">ypwee</th></tr>
-<tr><td valign="top">One protocol per tool. mtproto.zig does MTProto + WEB but says calls are unsupported (no SOCKS5); tg-ws-proxy-rs is a local bridge for Desktop.</td><td valign="top">MTProto, SOCKS5 and WEB in one binary, one port, one config.</td></tr>
-<tr><td valign="top">Heavy builds. By mtproto.zig's own table: Telemt ≈ 15 MB / 423 crates, mtg ≈ 13 MB.</td><td valign="top">Native Yukino binary — no VM, no tracing GC. Size and RAM numbers will be measured and published, not promised.</td></tr>
-<tr><td valign="top">Memory growth with many held connections (tg-ws-proxy-rs issues #97, #113).</td><td valign="top">Small fixed per-connection state, region allocation, soak tests in CI.</td></tr>
-<tr><td valign="top">Runtime dependence on third-party lists (tg-ws-proxy-rs can fetch a Cloudflare domain list from GitHub).</td><td valign="top">Self-contained. No remote fetch at startup.</td></tr>
-<tr><td valign="top"><code>curl | sudo bash</code> as the main install path.</td><td valign="top">GitHub Actions release builds, SHA-256 sums, provenance attestation, plain tarball install.</td></tr>
-<tr><td valign="top">SOCKS5 cannot be disguised as HTTPS.</td><td valign="top">Said honestly: SOCKS5 is opt-in, authenticated and rate-limited.</td></tr>
-</table>
+| Protocol | What it is for |
+|---|---|
+| **MTProto** | proxy inside Telegram (`dd`/`ee` secrets, FakeTLS, several users) |
+| **SOCKS5** | Telegram calls, plain SOCKS5 with password and ACL |
+| **WEB** | the "WEB" proxy type of Telegram Desktop 7.1+, over ordinary HTTPS |
 
-## How one port serves everything
+Plus masking: a wrong secret or a port scanner gets the real website instead. The prober sees an ordinary TLS handshake.
 
-```mermaid
-flowchart LR
-  C([client]) --> P[":443 · SocketPoller"]
-  P --> S{"sniff first bytes"}
-  S -->|"0x05"| K["SOCKS5"]
-  S -->|"CONNECT"| H["HTTP proxy"]
-  S -->|"TLS + valid secret"| F["FakeTLS → MTProto"]
-  S -->|"TLS + relay host"| W["WEB relay"]
-  S -->|"anything else"| M["mask: real site"]
+## Install
+
+Prebuilt binaries are in [releases](https://github.com/ty4chka/ypwee/releases). No `curl | sudo bash`: download, unpack, run.
+
+```bash
+# amd64
+curl -LO https://github.com/ty4chka/ypwee/releases/latest/download/ypwee-linux-amd64
+chmod +x ypwee-linux-amd64
+
+# arm64 (Raspberry Pi, VPS, phones)
+curl -LO https://github.com/ty4chka/ypwee/releases/latest/download/ypwee-linux-arm64
+chmod +x ypwee-linux-arm64
 ```
 
-## Roadmap
+Verify integrity:
 
-- <b>M0</b> — design, README, CI skeleton
-- <b>M1</b> — SOCKS5 + HTTP CONNECT (smallest slice; proves <code>std.net</code> + <code>SocketPoller</code>)
-- <b>M2</b> — MTProto obfuscated2 (needs AES-256-CTR, not in Yukino <code>std.crypto</code> yet) + <code>dd</code>/<code>ee</code> secrets
-- <b>M3</b> — FakeTLS + anti-probe masking
-- <b>M4</b> — WEB relay (WebSocket RFC 6455 + Telegram bridge frames)
-- <b>M5</b> — signed releases, installer, benchmarks vs. mtg / Telemt / mtproto.zig
+```bash
+curl -LO https://github.com/ty4chka/ypwee/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS
+```
 
-## Credits & references
+## Run
 
-- [Yukino](https://github.com/yukitsuri/yukino) — language, `std.net`, `std.crypto`
-- [sleep3r/mtproto.zig](https://github.com/sleep3r/mtproto.zig) — MTProto + WEB relay in Zig (MIT)
-- [valnesfjord/tg-ws-proxy-rs](https://github.com/valnesfjord/tg-ws-proxy-rs) · [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) — WebSocket bridge
-- Telemt (Rust) · mtg (Go) · official MTProxy (C)
+Minimal config — a file `ypwee.conf` next to the binary:
 
-*License: to be decided (Yukino itself is Apache-2.0; code ported from MIT projects must keep their notices).*
+```ini
+user = alice:myPassword
+allow = *
+
+# MTProto secret from @MTProxybot: dd + 32 hex chars, or ee + host
+mtproto-secret = ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d
+mtproto-port = 0.0.0.0:443
+```
+
+```bash
+./ypwee-linux-amd64 ypwee.conf
+```
+
+You will see:
+
+```
+[ypwee] socks5 on 127.0.0.1:1080
+[ypwee] http on 127.0.0.1:8081
+[ypwee] mtproto on 0.0.0.0:443
+```
+
+Then in Telegram: **Settings → Advanced → Proxy → MTProto**, enter the server address, port and secret.
+
+## One port, three protocols
+
+```
+client
+  │
+  ├─ 0x05 ────────────────► SOCKS5
+  ├─ CONNECT ─────────────► HTTP proxy
+  ├─ TLS + valid secret ──► FakeTLS → MTProto
+  ├─ TLS + relay host ────► WEB relay
+  └─ anything else ───────► mask: the real website
+```
+
+## Config
+
+| Key | Meaning | Default |
+|---|---|---|
+| `user` | SOCKS5 login:password, may repeat | — |
+| `allow` | allow-list of target hosts, `*` for all | `*` |
+| `allow-private` | allow private addresses as targets | `false` |
+| `mtproto-secret` | MTProto secret (`dd…` or `ee…`) | — |
+| `mtproto-port` | MTProto address and port | — |
+| `socks5` | SOCKS5 address and port | `127.0.0.1:1080` |
+| `http` | HTTP proxy address and port | `127.0.0.1:8081` |
+| `max-conns` | connection limit | `1024` |
+
+Full list — in [`ypwee.example.toml`](ypwee.example.toml).
+
+## Build from source
+
+You need the [Yukino](https://github.com/yukitsuri/yukino) compiler (`yukic`) and `lld`.
+
+```bash
+git clone https://github.com/ty4chka/ypwee.git
+cd ypwee
+
+# tests: 44/44
+yukic --test --entry src/main.ykn -o test.bin -- --error-limit=0
+chmod +x test.bin && ./test.bin
+
+# release build
+yukic --release --entry src/main.ykn -o ypwee -- --error-limit=0
+```
+
+Prebuilt amd64 and arm64 binaries are produced on every push — see [`.github/workflows/build.yml`](.github/workflows/build.yml).
+
+## What is verified
+
+- **44/44 tests** — SHA-1, SHA-256, HMAC, base64/base64url (RFC vectors), AES-CTR (NIST), SOCKS5, HTTP CONNECT, MTProto, WS frames
+- **FakeTLS e2e** — MTProto handshake and relay against a local fake DC
+- **WebSocket e2e** — WEB relay through the proxy, full HELLO→WELCOME→OPEN→DATA cycle
+- **anti-probing** — a wrong secret yields the real website's TLS response
+
+Tests run on amd64 and arm64 in CI.
+
+## Not done yet
+
+- A test against a **real** Telegram DC from a residential IP: datacenters ignore obfs2 from server addresses.
+- Signed releases (cosign/provenance) — planned.
+- Benchmarks against mtg / Telemt / mtproto.zig — planned.
+
+## License
+
+See [LICENSE](LICENSE).
