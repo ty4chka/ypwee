@@ -1680,19 +1680,45 @@ public class Proxy {
 
     fun mt_phase_obfs2(ci: int64, acc: bytes, acc_len: int64) {
         set a: bytes = acc
-        // skip leading ChangeCipherSpec records (type 20) before the obfs2 frame
+        // Skip the TLS records a real client sends before the obfuscated2 frame:
+        // ChangeCipherSpec (type 20) AND application-data (type 23). A real client
+        // wraps the obfs2 header INSIDE a 17 03 03 record from its very first byte,
+        // so the 64 bytes live at pos+5 (payload start), not at pos (record header).
+        // mt_phase_relay_client2 already handles both types — this loop now matches it.
         set pos: int64 = 0
+        set from_payload: bool = false
         set scanning: bool = true
         while scanning && pos + 5 <= acc_len {
             set t0: int64 = cast(a[pos], "int64")
             if t0 == 20 {
                 set l0: int64 = cast(a[pos + 3], "int64") * 256 + cast(a[pos + 4], "int64")
                 rewrite pos = pos + 5 + l0
-            } else {
-                rewrite scanning = false
+                continue
             }
+            if t0 == 23 {
+                set l23: int64 = cast(a[pos + 3], "int64") * 256 + cast(a[pos + 4], "int64")
+                if pos + 5 + l23 > acc_len {
+                    // record not fully received yet
+                    return
+                }
+                if l23 < 64 {
+                    // payload too small for a full obfs2 header: skip and keep looking
+                    rewrite pos = pos + 5 + l23
+                    continue
+                }
+                rewrite pos = pos + 5
+                rewrite from_payload = true
+                rewrite scanning = false
+                continue
+            }
+            rewrite scanning = false
         }
-        if acc_len - pos < 64 { return }
+        if from_payload {
+            // pos now points at the payload of the app-data record
+            if acc_len - pos < 64 { return }
+        } else {
+            if acc_len - pos < 64 { return }
+        }
         set frame0: bytes = cast("", "bytes")
         frame0.reserve(64)
         set fk: int64 = pos
