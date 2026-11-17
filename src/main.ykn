@@ -1686,6 +1686,7 @@ public class Proxy {
         // so the 64 bytes live at pos+5 (payload start), not at pos (record header).
         // mt_phase_relay_client2 already handles both types — this loop now matches it.
         set pos: int64 = 0
+        set rec_end: int64 = 0
         set from_payload: bool = false
         set scanning: bool = true
         while scanning && pos + 5 <= acc_len {
@@ -1706,6 +1707,7 @@ public class Proxy {
                     rewrite pos = pos + 5 + l23
                     continue
                 }
+                rewrite rec_end = pos + 5 + l23
                 rewrite pos = pos + 5
                 rewrite from_payload = true
                 rewrite scanning = false
@@ -1843,17 +1845,37 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
-        // consume header; leftover is FakeTLS records -> phase 2 parser (no blind decrypt)
-        set rest_len: int64 = acc_len - pos - 64
+        // consume header. The 64 bytes we took are the START of the payload of the
+        // current type-23 record, so what follows in that SAME record is a plain
+        // continuation of the client->DC stream, not a new TLS record. Wrap that
+        // continuation in a synthetic 17 03 03 header so the phase-2 parser (which
+        // only understands TLS records) sees a well-formed record instead of raw
+        // payload -> avoids "unexpected record type".
         set rest: bytes = cast("", "bytes")
-        if rest_len > 0 {
-            rest.reserve(rest_len)
-            set k3: int64 = pos + 64
-            while k3 < acc_len {
-                rest.push(a[k3])
-                rewrite k3 += 1
+        set hdr_end: int64 = pos + 64
+        set tail_from: int64 = hdr_end
+        if from_payload && rec_end > hdr_end {
+            set cont_len: int64 = rec_end - hdr_end
+            rest.reserve(cont_len + 5)
+            rest.push(23u8)
+            rest.push(3u8)
+            rest.push(3u8)
+            rest.push(cast(cont_len / 256, "uint8"))
+            rest.push(cast(cont_len % 256, "uint8"))
+            set kc: int64 = hdr_end
+            while kc < rec_end {
+                rest.push(a[kc])
+                rewrite kc += 1
             }
+            rewrite tail_from = rec_end
         }
+        // append any further complete records that already arrived
+        set k3: int64 = tail_from
+        while k3 < acc_len {
+            rest.push(a[k3])
+            rewrite k3 += 1
+        }
+        set rest_len: int64 = cast(rest.len(), "int64")
         this.mt_state_set(ci, rest, rest_len)
         this.mt_phase.set_i64(ci, 2)
         if rest_len > 0 {
@@ -1890,7 +1912,7 @@ public class Proxy {
         rewrite this.mt_enc = enc
         rewrite this.mt_tge = tg_enc
         rewrite this.mt_tgd = tg_dec
-        eprint("[ypwee] mtproto: dc " + i64_to_string(dc) + " connected\n")
+        eprint("[ypwee] mtproto: dc connected\n")
     }
 
     // client -> DC: unwrap TLS records, decrypt with dec, write raw to DC
