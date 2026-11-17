@@ -1,0 +1,72 @@
+// ypwee — HMAC-SHA256 (RFC 2104) + capability token helper.
+// H = SHA-256, block size 64 bytes. key > 64 -> sha256(key) first, then
+// zero-pad to 64. ipad = key ^ 0x36, opad = key ^ 0x5c.
+// hmac = sha256(opad_block || sha256(ipad_block || msg)).
+
+load .sha256: sha256
+load .b64: base64url_nopad
+
+static HMAC_BLOCK: int64 = 64
+
+// Normalize key: hash if longer than one block, then zero-pad to 64 bytes.
+public fun hmac_key_block(key: bytes) -> bytes {
+    set klen: int64 = cast(key.len(), "int64")
+    set kh: bytes = cast("", "bytes")
+    kh.reserve(HMAC_BLOCK)
+    if klen > HMAC_BLOCK {
+        rewrite kh = sha256(key.cp())
+    } else {
+        set i: int64 = 0
+        while i < klen {
+            kh.push(key[i])
+            rewrite i += 1
+        }
+    }
+    while cast(kh.len(), "int64") < HMAC_BLOCK {
+        kh.push(0u8)
+    }
+    return kh
+}
+
+public fun hmac_sha256(key: bytes, msg: bytes) -> bytes {
+    set ms: bytes = msg.cp()
+    set kb: bytes = hmac_key_block(key)
+
+    set ipad: bytes = cast("", "bytes")
+    ipad.reserve(HMAC_BLOCK)
+    set opad: bytes = cast("", "bytes")
+    opad.reserve(HMAC_BLOCK)
+    set i: int64 = 0
+    while i < HMAC_BLOCK {
+        set vi: int64 = cast(kb[i], "int64")
+        set vo: int64 = cast(kb[i], "int64")
+        ipad.push(cast(vi ^ 54, "uint8"))
+        opad.push(cast(vo ^ 92, "uint8"))
+        rewrite i += 1
+    }
+
+    // inner = sha256(ipad || msg)
+    set inner_in: bytes = ipad.cp()
+    set mn: int64 = cast(ms.len(), "int64")
+    set j: int64 = 0
+    while j < mn {
+        inner_in.push(ms[j])
+        rewrite j += 1
+    }
+    set inner: bytes = sha256(inner_in)
+
+    // outer = sha256(opad || inner)
+    set outer_in: bytes = opad.cp()
+    set k2: int64 = 0
+    while k2 < 32 {
+        outer_in.push(inner[k2])
+        rewrite k2 += 1
+    }
+    return sha256(outer_in)
+}
+
+// Capability token for the WS mux (M4): b64url_nopad(HMAC-SHA256(secret, payload)).
+public fun capability(secret: bytes, payload: bytes) -> string {
+    set mac: bytes = hmac_sha256(secret, payload)
+    return base64url_nopad(mac)
+}

@@ -1,0 +1,47 @@
+load .b64: base64url_nopad, base64_encode
+
+#[test]
+fun b64url_rfc4648_vectors() {
+    set f: bytes = cast("f", "bytes")
+    assert(base64url_nopad(f.cp()) == "Zg", "f")
+    set fo: bytes = cast("fo", "bytes")
+    assert(base64url_nopad(fo.cp()) == "Zm8", "fo")
+    set foo: bytes = cast("foo", "bytes")
+    assert(base64url_nopad(foo.cp()) == "Zm9v", "foo")
+    set foob: bytes = cast("foob", "bytes")
+    assert(base64url_nopad(foob.cp()) == "Zm9vYg", "foob")
+    set fooba: bytes = cast("fooba", "bytes")
+    assert(base64url_nopad(fooba.cp()) == "Zm9vYmE", "fooba")
+    set foobar: bytes = cast("foobar", "bytes")
+    assert(base64url_nopad(foobar.cp()) == "Zm9vYmFy", "foobar")
+}
+
+#[test]
+fun b64url_alt_alphabet_and_no_pad() {
+    // '+' (62) and '/' (63) must map to '-' and '_' instead, with no '=' padding.
+    // 0xFB 0xFF 0xBF -> standard "+/+/" -> url "-_-_" (openssl-verified)
+    set x: bytes = cast("", "bytes")
+    x.push(0xFBu8)
+    x.push(0xFFu8)
+    x.push(0xBFu8)
+    assert(base64url_nopad(x.cp()) == "-_-_", "62/63 digits")
+
+    // two-byte remainder: 0xFF 0xBF -> standard "/78=" -> url "_78" without '='
+    set y: bytes = cast("", "bytes")
+    y.push(0xFFu8)
+    y.push(0xBFu8)
+    assert(base64url_nopad(y.cp()) == "_78", "rem==2 no pad")
+
+    // four bytes crossing both alt digits and a zero tail: +/+//w== -> -_-__w
+    set z: bytes = cast("", "bytes")
+    z.push(0xFBu8)
+    z.push(0xFFu8)
+    z.push(0xBFu8)
+    z.push(0xFFu8)
+    assert(base64url_nopad(z.cp()) == "-_-__w", "4 bytes 62/63 mix")
+
+    // sanity: the standard encoder still pads, the url one never does
+    set fo: bytes = cast("fo", "bytes")
+    assert(base64_encode(fo.cp()) == "Zm8=", "standard still pads")
+    assert(base64url_nopad(fo.cp()) == "Zm8", "url strips pad")
+}

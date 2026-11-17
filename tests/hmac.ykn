@@ -1,0 +1,89 @@
+load .hmac: hmac_sha256, capability
+load std.hash.common: bytes_to_hex
+
+// Build a bytes value of length n filled with the single byte v.
+fun fill(n: int64, v: int64) -> bytes {
+    set b: bytes = cast("", "bytes")
+    set i: int64 = 0
+    while i < n {
+        b.push(cast(v, "uint8"))
+        rewrite i += 1
+    }
+    return b
+}
+
+// Build bytes 0x01..0x19 (25 bytes) for RFC 4231 case 4.
+fun seq_01_to_19() -> bytes {
+    set b: bytes = cast("", "bytes")
+    set i: int64 = 1
+    while i <= 25 {
+        b.push(cast(i, "uint8"))
+        rewrite i += 1
+    }
+    return b
+}
+
+// Build bytes 0xaa repeated n times (RFC 4231 case 3 key).
+fun fill_aa(n: int64) -> bytes {
+    return fill(n, 170)
+}
+
+#[test]
+fun hmac_rfc4231_cases_1_to_4() {
+    // Case 1: key = 0x0b x 20, data = "Hi There"
+    set k1: bytes = fill(20, 11)
+    set d1: bytes = cast("Hi There", "bytes")
+    assert(bytes_to_hex(ref hmac_sha256(k1.cp(), d1.cp())) == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7", "case 1")
+
+    // Case 2: key = "Jefe", data = "what do ya want for nothing?"
+    set k2: bytes = cast("Jefe", "bytes")
+    set d2: bytes = cast("what do ya want for nothing?", "bytes")
+    assert(bytes_to_hex(ref hmac_sha256(k2.cp(), d2.cp())) == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843", "case 2")
+
+    // Case 3: key = 0xaa x 20, data = 0xdd x 50
+    set k3: bytes = fill_aa(20)
+    set d3: bytes = fill(50, 221)
+    assert(bytes_to_hex(ref hmac_sha256(k3.cp(), d3.cp())) == "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe", "case 3")
+
+    // Case 4: key = 0x01..0x19, data = 0xcd x 50
+    set k4: bytes = seq_01_to_19()
+    set d4: bytes = fill(50, 205)
+    assert(bytes_to_hex(ref hmac_sha256(k4.cp(), d4.cp())) == "82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b", "case 4")
+}
+
+#[test]
+fun hmac_rfc4231_cases_5_to_7() {
+    // Case 5: key = 0x0c x 20, data = "Test With Truncation" (full-digest variant)
+    set k5: bytes = fill(20, 12)
+    set d5: bytes = cast("Test With Truncation", "bytes")
+    assert(bytes_to_hex(ref hmac_sha256(k5.cp(), d5.cp())) == "a3b6167473100ee06e0c796c2955552bfa6f7c0a6a8aef8b93f860aab0cd20c5", "case 5")
+
+    // Case 6: key = 0xaa x 131, data = "Test Using Larger Than Block-Size Key - Hash Key First"
+    set k6: bytes = fill(131, 170)
+    set d6: bytes = cast("Test Using Larger Than Block-Size Key - Hash Key First", "bytes")
+    assert(bytes_to_hex(ref hmac_sha256(k6.cp(), d6.cp())) == "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54", "case 6")
+
+    // Case 7: key = 0xaa x 131, data = longer text
+    set d7: bytes = cast("This is a test using a larger than block-size key and a larger than block-size data. The key needs to be hashed before being used by the HMAC algorithm.", "bytes")
+    assert(bytes_to_hex(ref hmac_sha256(k6.cp(), d7.cp())) == "9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2", "case 7")
+}
+
+#[test]
+fun capability_token_self_consistency() {
+    // RFC 4231 case 1 digest b0344c61...cff7 -> b64url_nopad
+    set secret: bytes = fill(20, 11)
+    set payload: bytes = cast("Hi There", "bytes")
+    assert(capability(secret.cp(), payload.cp()) == "sDRMYdjbOFNcqK_OrwvxK4gdwgDJgz2nJuk3bC4yz_c", "capability case 1")
+}
+
+#[test]
+fun hmac_key_blocksize_boundary() {
+    // Key of exactly HMAC_BLOCK (64) bytes is used as-is; 65 bytes must be
+    // hashed first. Vectors generated with:
+    //   openssl dgst -sha256 -mac hmac -macopt hexkey:<k> on msg "x"
+    set msg: bytes = cast("x", "bytes")
+    set k64: bytes = fill(64, 107)   // "k" * 64
+    set k65: bytes = fill(65, 107)   // "k" * 65
+    assert(bytes_to_hex(ref hmac_sha256(k64.cp(), msg.cp())) == "f91c4c403625fb06910ef93999265bbd2d62baeaec6ff36455498cc124fe3e66", "key == block size")
+    assert(bytes_to_hex(ref hmac_sha256(k65.cp(), msg.cp())) == "75092ca3ee2b307470c227697b42b3e65376aa3bae98fb5a1f7b7536daa9588a", "key > block size")
+}

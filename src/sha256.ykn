@@ -1,0 +1,154 @@
+// ypwee — SHA-256 (FIPS 180-4), modeled on sha1.ykn.
+// All 32-bit arithmetic on int64 with mask 0xffffffff; ror via shifts.
+
+public fun sha256_ror(x: int64, n: int64) -> int64 {
+    set m: int64 = 4294967295
+    return ((x >> n) | (x << (32 - n))) & m
+}
+
+// message schedule sigma0 (small)
+public fun sha256_s0(x: int64) -> int64 {
+    return sha256_ror(x, 7) ^ sha256_ror(x, 18) ^ (x >> 3)
+}
+
+// message schedule sigma1 (small)
+public fun sha256_s1(x: int64) -> int64 {
+    return sha256_ror(x, 17) ^ sha256_ror(x, 19) ^ (x >> 10)
+}
+
+// compression Sigma0 (capital)
+public fun sha256_S0(x: int64) -> int64 {
+    return sha256_ror(x, 2) ^ sha256_ror(x, 13) ^ sha256_ror(x, 22)
+}
+
+// compression Sigma1 (capital)
+public fun sha256_S1(x: int64) -> int64 {
+    return sha256_ror(x, 6) ^ sha256_ror(x, 11) ^ sha256_ror(x, 25)
+}
+
+public fun sha256(data: bytes) -> bytes {
+    set m: int64 = 4294967295
+    set h0: int64 = 1779033703
+    set h1: int64 = 3144134277
+    set h2: int64 = 1013904242
+    set h3: int64 = 2773480762
+    set h4: int64 = 1359893119
+    set h5: int64 = 2600822924
+    set h6: int64 = 528734635
+    set h7: int64 = 1541459225
+
+    set kk: int64[] = [
+        1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993,
+        2453635748, 2870763221, 3624381080, 310598401, 607225278, 1426881987,
+        1925078388, 2162078206, 2614888103, 3248222580, 3835390401, 4022224774,
+        264347078, 604807628, 770255983, 1249150122, 1555081692, 1996064986,
+        2554220882, 2821834349, 2952996808, 3210313671, 3336571891, 3584528711,
+        113926993, 338241895, 666307205, 773529912, 1294757372, 1396182291,
+        1695183700, 1986661051, 2177026350, 2456956037, 2730485921, 2820302411,
+        3259730800, 3345764771, 3516065817, 3600352804, 4094571909, 275423344,
+        430227734, 506948616, 659060556, 883997877, 958139571, 1322822218,
+        1537002063, 1747873779, 1955562222, 2024104815, 2227730452, 2361852424,
+        2428436474, 2756734187, 3204031479, 3329325298
+    ]
+
+    set d: bytes = data.cp()
+    set msg_len: int64 = cast(d.len(), "int64")
+
+    set bit_len: int64 = msg_len * 8
+    set padded_len: int64 = ((msg_len + 8) / 64 + 1) * 64
+    set p: bytes = cast("", "bytes")
+    p.reserve(padded_len)
+    set i: int64 = 0
+    while i < msg_len {
+        p.push(d[i])
+        rewrite i += 1
+    }
+    p.push(128u8)
+    rewrite i = msg_len + 1
+    while i < padded_len - 8 {
+        p.push(0u8)
+        rewrite i += 1
+    }
+    set bl: int64 = bit_len
+    set shift: int64 = 56
+    while shift >= 0 {
+        p.push(cast((bl >> shift) & 255, "uint8"))
+        rewrite shift -= 8
+    }
+
+    set w: int64[] = []
+    set wi: int64 = 0
+    while wi < 64 {
+        w.push(0)
+        rewrite wi += 1
+    }
+    set block: int64 = 0
+    while block < padded_len {
+        set j: int64 = 0
+        while j < 16 {
+            set v: int64 = cast(p[block + j * 4], "int64") << 24
+            rewrite v = v | (cast(p[block + j * 4 + 1], "int64") << 16)
+            rewrite v = v | (cast(p[block + j * 4 + 2], "int64") << 8)
+            rewrite v = v | cast(p[block + j * 4 + 3], "int64")
+            rewrite w[j] = v & m
+            rewrite j += 1
+        }
+        rewrite j = 16
+        while j < 64 {
+            set s0: int64 = sha256_ror(w[j - 15], 7) ^ sha256_ror(w[j - 15], 18) ^ (w[j - 15] >> 3)
+            set s1: int64 = sha256_ror(w[j - 2], 17) ^ sha256_ror(w[j - 2], 19) ^ (w[j - 2] >> 10)
+            rewrite w[j] = (w[j - 16] + s0 + w[j - 7] + s1) & m
+            rewrite j += 1
+        }
+        set a: int64 = h0
+        set b: int64 = h1
+        set c: int64 = h2
+        set dd: int64 = h3
+        set e: int64 = h4
+        set f: int64 = h5
+        set g: int64 = h6
+        set hh: int64 = h7
+        set r: int64 = 0
+        while r < 64 {
+            set big_s1: int64 = sha256_S1(e)
+            set ch: int64 = (e & f) ^ ((~e & m) & g)
+            set t1: int64 = (hh + big_s1 + ch + kk[r] + w[r]) & m
+            set big_s0: int64 = sha256_S0(a)
+            set maj: int64 = (a & b) ^ (a & c) ^ (b & c)
+            set t2: int64 = (big_s0 + maj) & m
+            rewrite hh = g
+            rewrite g = f
+            rewrite f = e
+            rewrite e = (dd + t1) & m
+            rewrite dd = c
+            rewrite c = b
+            rewrite b = a
+            rewrite a = (t1 + t2) & m
+            rewrite r += 1
+        }
+        rewrite h0 = (h0 + a) & m
+        rewrite h1 = (h1 + b) & m
+        rewrite h2 = (h2 + c) & m
+        rewrite h3 = (h3 + dd) & m
+        rewrite h4 = (h4 + e) & m
+        rewrite h5 = (h5 + f) & m
+        rewrite h6 = (h6 + g) & m
+        rewrite h7 = (h7 + hh) & m
+        rewrite block += 64
+    }
+
+    set out: bytes = cast("", "bytes")
+    out.reserve(32)
+    set hs: int64[] = [h0, h1, h2, h3, h4, h5, h6, h7]
+    set q: int64 = 0
+    while q < 8 {
+        set v2: int64 = hs[q]
+        set s2: int64 = 24
+        while s2 >= 0 {
+            out.push(cast((v2 >> s2) & 255, "uint8"))
+            rewrite s2 -= 8
+        }
+        rewrite q += 1
+    }
+    return out
+}

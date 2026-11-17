@@ -63,7 +63,7 @@ public fun mt_faketls_verify(client: bytes, secret_hex: string, hostname: string
         rewrite zeroed[TLS_RANDOM_OFF + i] = 0u8
         rewrite i += 1
     }
-    set mac: bytes = hmac_sha256(ref key, ref zeroed)
+    set mac: bytes = hmac_sha256(key.cp(), zeroed.cp())
     set got: bytes = copy_string_bytes(client_s, TLS_RANDOM_OFF, TLS_RANDOM_OFF + 32)
     set check: bytes = copy_xor(mac, got)
     set check_cp: bytes = check.cp()
@@ -99,7 +99,7 @@ public fun mt_obfs_client_key(frame: bytes, secret_hex: string) -> bytes {
         material.push(secret[j])
         rewrite j += 1
     }
-    return sha256(ref material)
+    return sha256(material.cp())
 }
 
 public fun mt_obfs_client_iv(frame: bytes) -> bytes {
@@ -137,7 +137,7 @@ public fun mt_obfs_open_header(frame: bytes, secret_hex: string) -> bytes {
         material.push(byte_at(secret_s, i))
         rewrite i += 1
     }
-    set key: bytes = sha256(ref material)
+    set key: bytes = sha256(material.cp())
     set iv: bytes = copy_string_bytes(frame_s, MT_IV_OFF, MT_IV_OFF + 16)
     set payload: bytes = cast(frame_s, "bytes")
     return aes_ctr(key, iv, payload)
@@ -288,7 +288,7 @@ public fun mt_server_welcome(client_random: bytes, session_id: bytes, secret_hex
         }
         rewrite j += 1
     }
-    set mac: bytes = hmac_sha256(ref key, ref mac_input)
+    set mac: bytes = hmac_sha256(key.cp(), mac_input.cp())
     // write HMAC into out at offset 11..42 (server random field)
     rewrite j = 0
     while j < 32 {

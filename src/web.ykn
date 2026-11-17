@@ -2,6 +2,11 @@
 // Carrier frame (tdesktop web-proxy-plan §6): type:u8 | sid:u24 BE | len:u32 BE | payload.
 // Все операции на bytes (string-возвраты компилятора ненадёжны).
 
+load .sha1: sha1
+load .b64: base64_encode
+load .buffer: push_bytes_string
+load .hmac: capability
+
 // ---------- WebSocket frame header ----------
 
 public struct WsFrame {
@@ -127,6 +132,17 @@ public fun wf_parse(b: bytes, n: int64, off: int64) -> Wf {
     return r
 }
 
+// inbound carrier header as sent by tdesktop clients: 1-byte ftype | sid u24BE | 1-byte plen
+public fun wf_parse_in(b: bytes, n: int64, off: int64) -> Wf {
+    set r = Wf { ftype: 0, sid: 0, plen: 0, ok: false }
+    if off + 5 > n { return r }
+    rewrite r.ftype = cast(b[off], "int64")
+    rewrite r.sid = cast(b[off + 1], "int64") * 65536 + cast(b[off + 2], "int64") * 256 + cast(b[off + 3], "int64")
+    rewrite r.plen = cast(b[off + 4], "int64")
+    rewrite r.ok = true
+    return r
+}
+
 public fun wf_build(ftype: int64, sid: int64, payload: bytes) -> bytes {
     set out: bytes = cast("", "bytes")
     out.push(cast(ftype, "uint8"))
@@ -144,4 +160,193 @@ public fun wf_build(ftype: int64, sid: int64, payload: bytes) -> bytes {
         rewrite i += 1
     }
     return out
+}
+
+// ---------- HTTP upgrade (RFC 6455 §4) — pure, no socket I/O ----------
+
+// sane upper bound on the header block we are willing to buffer/scan
+public static HTTP_MAX_HEADERS: int64 = 16384
+
+// find "\r\n\r\n" terminator; returns offset just past it, or -1 when absent
+public fun http_hdr_end(a: bytes, n: int64) -> int64 {
+    set i: int64 = 0
+    while i + 3 < n {
+        if cast(a[i], "int64") == 13 && cast(a[i + 1], "int64") == 10 && cast(a[i + 2], "int64") == 13 && cast(a[i + 3], "int64") == 10 {
+            return i + 4
+        }
+        rewrite i += 1
+    }
+    return -1
+}
+
+// ASCII lowercase of a string (toolchain lacks std to_lowercase)
+fun http_lower_s(x: string) -> string {
+    set b: bytes = cast(x.cp(), "bytes")
+    set n: int64 = cast(b.len(), "int64")
+    set out: bytes = cast("", "bytes")
+    out.reserve(n)
+    set i: int64 = 0
+    while i < n {
+        set v: int64 = cast(b[i], "int64")
+        if v >= 65 && v <= 90 { rewrite v += 32 }
+        out.push(cast(v, "uint8"))
+        rewrite i += 1
+    }
+    return cast(out, "string")
+}
+
+// case-insensitive header lookup; value returned verbatim (no case folding).
+// a = raw request bytes, n = length, name = header name in any case. "" = absent.
+fun http_hdr_get(a: bytes, n: int64, name: string) -> string {
+    set want: bytes = cast(http_lower_s(name) + ":", "bytes")
+    set wl: int64 = cast(want.len(), "int64")
+    set i: int64 = 0
+    while i + wl < n {
+        set at_line_start: bool = i == 0
+        if i > 0 && cast(a[i - 1], "int64") == 10 {
+            rewrite at_line_start = true
+        }
+        if at_line_start && cast(a[i], "int64") != 13 {
+            set match: bool = true
+            set k: int64 = 0
+            while k < wl {
+                set v: int64 = cast(a[i + k], "int64")
+                if v >= 65 && v <= 90 { rewrite v += 32 }
+                if v != cast(want[k], "int64") {
+                    rewrite match = false
+                    break
+                }
+                rewrite k += 1
+            }
+            if match {
+                // skip spaces/tabs after the colon
+                set vstart: int64 = i + wl
+                while vstart < n && (cast(a[vstart], "int64") == 32 || cast(a[vstart], "int64") == 9) { rewrite vstart += 1 }
+                set vend: int64 = vstart
+                while vend + 1 < n && !(cast(a[vend], "int64") == 13 && cast(a[vend + 1], "int64") == 10) {
+                    rewrite vend += 1
+                }
+                if vstart < vend {
+                    set out: bytes = cast("", "bytes")
+                    out.reserve(vend - vstart)
+                    set q: int64 = vstart
+                    while q < vend {
+                        out.push(a[q])
+                        rewrite q += 1
+                    }
+                    return cast(out, "string")
+                }
+                return ""
+            }
+        }
+        rewrite i += 1
+    }
+    return ""
+}
+
+// push a line + CRLF onto a bytes accumulator
+fun http_push_line(ref ~acc: bytes, s: string) {
+    push_bytes_string(ref ~acc, s)
+    acc.push(13u8)
+    acc.push(10u8)
+}
+
+// exact rejection bytes: "HTTP/1.1 400 Bad Request\r\n\r\n"
+public fun http_bad_request() -> bytes {
+    set out: bytes = cast("", "bytes")
+    push_bytes_string(ref ~out, "HTTP/1.1 400 Bad Request")
+    out.push(13u8)
+    out.push(10u8)
+    out.push(13u8)
+    out.push(10u8)
+    return out
+}
+
+// Upgrade header value must lowercase to exactly "websocket"
+fun http_token_ok(val: string) -> bool {
+    set v: string = http_lower_s(val)
+    if v == "websocket" { return true }
+    return false
+}
+
+// Pure upgrade handler. req: raw request bytes, n: usable length.
+// Returns 101 Switching Protocols (with Sec-WebSocket-Accept) on success,
+// else the exact bytes "HTTP/1.1 400 Bad Request\r\n\r\n".
+// key is used as-is (NOT base64-decoded); accept = base64(sha1(key + GUID)).
+public fun http_upgrade_response(req: bytes, n: int64) -> bytes {
+    if n > HTTP_MAX_HEADERS { return http_bad_request() }
+    if n < 4 { return http_bad_request() }
+    set hend: int64 = http_hdr_end(req.cp(), n)
+    if hend < 0 { return http_bad_request() }
+
+    // request line must start with "GET "
+    if cast(req[0], "int64") != 71 || cast(req[1], "int64") != 69 || cast(req[2], "int64") != 84 || cast(req[3], "int64") != 32 {
+        return http_bad_request()
+    }
+
+    // Upgrade: websocket (name and value case-insensitive)
+    set up: string = http_hdr_get(req.cp(), n, "Upgrade")
+    if !http_token_ok(up) { return http_bad_request() }
+
+    // Connection header must be present
+    set conn: string = http_hdr_get(req.cp(), n, "Connection")
+    if conn.len() == 0 { return http_bad_request() }
+
+    // Sec-WebSocket-Key, value preserved verbatim
+    set ws_key: string = http_hdr_get(req.cp(), n, "Sec-WebSocket-Key")
+    if ws_key.len() == 0 { return http_bad_request() }
+
+    // accept = base64(sha1(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+    set sha_in: bytes = cast("", "bytes")
+    push_bytes_string(ref ~sha_in, ws_key)
+    push_bytes_string(ref ~sha_in, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+    set accept: string = base64_encode(sha1(sha_in))
+
+    // exact 101 response bytes
+    set out: bytes = cast("", "bytes")
+    http_push_line(ref ~out, "HTTP/1.1 101 Switching Protocols")
+    http_push_line(ref ~out, "Upgrade: websocket")
+    http_push_line(ref ~out, "Connection: Upgrade")
+    http_push_line(ref ~out, "Sec-WebSocket-Accept: " + accept)
+    out.push(13u8)
+    out.push(10u8)
+    return out
+}
+
+// ---------- HELLO capability validation (pure) ----------
+// Payload formats accepted at HELLO (ftype 0x10):
+//   - legacy v1: exactly 1 byte, value 0x01 (tests/ws_client.py sends b"\x01")
+//   - capability form: [1-byte version 0x01][nonce: k bytes][token: t bytes]
+//     with t >= 43 (base64url no-pad of a 32-byte HMAC-SHA256 tag is either
+//     43 chars; shorter tails cannot be a valid tag).  Deterministic split:
+//     the FIRST byte is always the version; the LAST 43 bytes are the token;
+//     everything between them is the nonce.  Token must equal
+//     capability(secret, nonce) = b64url_nopad(hmac_sha256(secret, nonce)).
+//     The version byte itself is excluded from the MAC input (it is metadata,
+//     not secret-dependent material); MACing the nonce alone keeps the
+//     server-side check a single hmac call over contiguous bytes.
+// Returns true for the legacy 1-byte v1 payload regardless of secret.
+public fun hello_valid(secret: bytes, payload: bytes) -> bool {
+    set n: int64 = cast(payload.len(), "int64")
+    if n == 1 { return true }
+    if n < 44 { return false } // version byte + 43-char token at minimum
+    set tokoff: int64 = n - 43
+    // extract nonce [1, tokoff) and token [tokoff, n) as ASCII
+    set nb: bytes = cast("", "bytes")
+    set i: int64 = 1
+    while i < tokoff {
+        nb.push(payload[i])
+        rewrite i += 1
+    }
+    set tb: bytes = cast("", "bytes")
+    set i2: int64 = tokoff
+    while i2 < n {
+        set tb2: int64 = cast(payload[i2], "int64")
+        if tb2 < 33 || tb2 > 126 { return false } // not printable ASCII: cannot be a token
+        tb.push(payload[i2])
+        rewrite i2 += 1
+    }
+    set want: string = capability(secret.cp(), nb)
+    set got: string = cast(tb, "string")
+    return want == got
 }

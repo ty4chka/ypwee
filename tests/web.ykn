@@ -1,5 +1,8 @@
-load .web: ws_parse, ws_payload, ws_build, wf_parse, wf_build
+load .web: ws_parse, ws_payload, ws_build, wf_parse, wf_build, http_upgrade_response, http_bad_request, hello_valid
 load std.hash.common: hex_to_bytes, bytes_to_hex
+load .hmac: capability
+load .buffer: push_bytes_string
+load .strutil: substr
 
 // RFC 6455 5.7: masked "Hello" text frame
 #[test]
@@ -63,4 +66,118 @@ fun wf_welcome_is_8_bytes() {
     set empty: bytes = cast("", "bytes")
     set w: bytes = wf_build(17, 0, empty)
     assert(bytes_to_hex(ref w) == "1100000000000000", "welcome frame")
+}
+
+// ---------- HTTP upgrade handler (subtask 33) ----------
+
+// RFC 6455 §1.3 vector: key "dGhlIHNhbXBsZSBub25jZQ==" must yield
+// Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+#[test]
+fun http_accept_rfc6455_vector() {
+    set req: bytes = hex_to_bytes("474554202f777320485454502f312e310d0a486f73743a206578616d706c652e636f6d0d0a557067726164653a20776562736f636b65740d0a436f6e6e656374696f6e3a20557067726164650d0a5365632d576562536f636b65742d4b65793a206447686c49484e68625842735a5342756232356a5a513d3d0d0a5365632d576562536f636b65742d56657273696f6e3a2031330d0a0d0a")
+    set rn: int64 = cast(req.len(), "int64")
+    set r2: bytes = req.cp()
+    set resp: bytes = http_upgrade_response(r2, rn)
+    set h: string = bytes_to_hex(ref resp)
+    assert(h == "485454502f312e312031303120537769746368696e672050726f746f636f6c730d0a557067726164653a20776562736f636b65740d0a436f6e6e656374696f6e3a20557067726164650d0a5365632d576562536f636b65742d4163636570743a20733370504c4d426954786151396b59477a7a685a52624b2b784f6f3d0d0a0d0a", "exact 101 bytes with RFC accept")
+}
+
+// header names/values in mixed case must still upgrade (UPGRADE: WebSocket,
+// connection: upgrade, sEc-Websocket-KEY)
+#[test]
+fun http_upgrade_mixed_case_headers() {
+    set req: bytes = hex_to_bytes("474554202f777320485454502f312e310d0a486f73743a206578616d706c652e636f6d0d0a555047524144453a20576562536f636b65740d0a636f6e6e656374696f6e3a20757067726164650d0a7345632d576562736f636b65742d4b45593a206447686c49484e68625842735a5342756232356a5a513d3d0d0a0d0a")
+    set rn: int64 = cast(req.len(), "int64")
+    set r2: bytes = req.cp()
+    set resp: bytes = http_upgrade_response(r2, rn)
+    set h: string = bytes_to_hex(ref resp)
+    assert(h == "485454502f312e312031303120537769746368696e672050726f746f636f6c730d0a557067726164653a20776562736f636b65740d0a436f6e6e656374696f6e3a20557067726164650d0a5365632d576562536f636b65742d4163636570743a20733370504c4d426954786151396b59477a7a685a52624b2b784f6f3d0d0a0d0a", "case-insensitive upgrade")
+}
+
+// POST request and unterminated (no \r\n\r\n) request -> exact 400 bytes
+#[test]
+fun http_reject_post_and_no_terminator() {
+    set post: bytes = hex_to_bytes("504f5354202f777320485454502f312e310d0a486f73743a206578616d706c652e636f6d0d0a557067726164653a20776562736f636b65740d0a436f6e6e656374696f6e3a20557067726164650d0a5365632d576562536f636b65742d4b65793a206447686c49484e68625842735a5342756232356a5a513d3d0d0a0d0a")
+    set pn: int64 = cast(post.len(), "int64")
+    set p2: bytes = post.cp()
+    set r1: bytes = http_upgrade_response(p2, pn)
+    assert(bytes_to_hex(ref r1) == "485454502f312e31203430302042616420526571756573740d0a0d0a", "POST rejected")
+
+    set trunc: bytes = hex_to_bytes("474554202f777320485454502f312e310d0a486f73743a206578616d706c652e636f6d")
+    set tn: int64 = cast(trunc.len(), "int64")
+    set t2: bytes = trunc.cp()
+    set r2: bytes = http_upgrade_response(t2, tn)
+    assert(bytes_to_hex(ref r2) == "485454502f312e31203430302042616420526571756573740d0a0d0a", "no terminator rejected")
+}
+
+// valid GET + Upgrade but no Sec-WebSocket-Key -> 400
+#[test]
+fun http_reject_missing_key() {
+    set req: bytes = hex_to_bytes("474554202f777320485454502f312e310d0a486f73743a206578616d706c652e636f6d0d0a557067726164653a20776562736f636b65740d0a436f6e6e656374696f6e3a20557067726164650d0a0d0a")
+    set rn: int64 = cast(req.len(), "int64")
+    set r2: bytes = req.cp()
+    set resp: bytes = http_upgrade_response(r2, rn)
+    assert(bytes_to_hex(ref resp) == "485454502f312e31203430302042616420526571756573740d0a0d0a", "missing key rejected")
+}
+
+// ---------- HELLO capability validation (hello_valid, src/web.ykn) ----------
+
+// legacy v1 HELLO: exactly 1 byte 0x01, accepted regardless of secret
+#[test]
+fun hello_valid_legacy_v1() {
+    set secret: bytes = hex_to_bytes("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
+    set payload: bytes = hex_to_bytes("01")
+    assert(hello_valid(secret.cp(), payload.cp()) == true, "legacy v1 accepted")
+}
+
+// capability form: [version 0x01][nonce deadbeef][token = capability(secret, nonce)]
+// token = b64url_nopad(hmac_sha256(secret, nonce)) -> 43 printable chars
+#[test]
+fun hello_valid_capability_roundtrip() {
+    set secret: bytes = hex_to_bytes("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
+    set nonce: bytes = hex_to_bytes("deadbeef")
+    set token: string = capability(secret.cp(), nonce.cp())
+    // payload = 0x01 || nonce || token
+    set payload: bytes = cast("", "bytes")
+    payload.push(1u8)
+    set i: int64 = 0
+    while i < cast(nonce.len(), "int64") {
+        payload.push(nonce[i])
+        rewrite i += 1
+    }
+    push_bytes_string(ref ~payload, token)
+    assert(hello_valid(secret.cp(), payload.cp()) == true, "capability roundtrip accepted")
+}
+
+// same nonce, but one token character flipped -> must be rejected
+// same nonce, but one token character flipped -> must be rejected
+#[test]
+fun hello_valid_bad_token() {
+    set secret: bytes = hex_to_bytes("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
+    set nonce: bytes = hex_to_bytes("deadbeef")
+    set token: string = capability(secret.cp(), nonce.cp())
+    // flip the LAST token char to 'X': good = token minus last char, bad = 'X'
+    set tlen: int64 = cast(token.len(), "int64")
+    set good: string = substr(token, 0, tlen - 1)
+    set bad: string = good + "X"
+    // sanity: bad differs from good token in exactly the last position
+    assert(bad != token, "tampered token differs")
+    // payload = 0x01 || nonce || bad_token
+    set payload: bytes = cast("", "bytes")
+    payload.push(1u8)
+    set i: int64 = 0
+    while i < cast(nonce.len(), "int64") {
+        payload.push(nonce[i])
+        rewrite i += 1
+    }
+    push_bytes_string(ref ~payload, bad)
+    assert(hello_valid(secret.cp(), payload.cp()) == false, "tampered token rejected")
+}
+
+// payload shorter than version byte + 43-char token (2 bytes) -> rejected
+#[test]
+fun hello_valid_short_payload() {
+    set secret: bytes = hex_to_bytes("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
+    set payload: bytes = hex_to_bytes("0102")
+    assert(hello_valid(secret.cp(), payload.cp()) == false, "short payload rejected")
 }

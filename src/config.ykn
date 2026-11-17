@@ -19,6 +19,9 @@ public class Config {
     mtproto_noise_jitter: int64
     mtproto_handshake_timeout_ms: int64
     dc_override: string
+    web_port: string
+    web_tls: bool
+    web_relay: string
 
     fun init() {
         rewrite this.mode = "all"
@@ -32,6 +35,7 @@ public class Config {
         rewrite this.idle_timeout_s = 300
         rewrite this.max_conns = 1024
         this.init_mtproto()
+        this.init_web()
     }
 
     fun apply(line: string) {
@@ -66,6 +70,20 @@ public class Config {
         if key == "new-conns-per-sec" { rewrite this.rate_per_sec = cast(val, "int64") }
         if key == "allow-all" { if val == "true" { this.allow_targets.push("*") } }
         this.apply_mtproto(key, val)
+        this.apply_web(key, val)
+    }
+
+    // WEB (WebSocket carrier) listener config: port, TLS flag, relay host.
+    fun init_web() {
+        rewrite this.web_port = "127.0.0.1:1443"
+        rewrite this.web_tls = false
+        rewrite this.web_relay = ""
+    }
+
+    fun apply_web(key: string, val: string) {
+        if key == "web-port" { rewrite this.web_port = val }
+        if key == "web-tls" { rewrite this.web_tls = (val == "true") }
+        if key == "web-relay" { rewrite this.web_relay = val }
     }
 
     fun target_allowed(host: string) -> bool {
