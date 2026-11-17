@@ -22,12 +22,16 @@ public fun mt_secret_host(secret_hex: string) -> string {
     return cast(raw, "string")
 }
 
-fun copy_string_bytes(data_s: string, from: int64, to: int64) -> bytes {
+// Слайс из bytes. Предпочтительнее copy_string_bytes: не зависит от того,
+// как компилятор превращает бинарные байты в string.
+fun copy_bytes_range(data: bytes, from: int64, to: int64) -> bytes {
     set out: bytes = cast("", "bytes")
+    if to <= from { return out }
+    set src: bytes = data.cp()
     out.reserve(to - from)
     set i: int64 = from
     while i < to {
-        out.push(byte_at(data_s, i))
+        out.push(src[i])
         rewrite i += 1
     }
     return out
@@ -38,12 +42,11 @@ fun copy_xor(a: bytes, b: bytes) -> bytes {
     out.reserve(a.len())
     set a_cp: bytes = a.cp()
     set b_cp: bytes = b.cp()
-    set a_s: string = cast(a_cp, "string")
-    set b_s: string = cast(b_cp, "string")
     set i: int64 = 0
-    set an: int64 = cast(a_s.len(), "int64")
+    set an: int64 = cast(a_cp.len(), "int64")
+    // прямая индексация bytes: cast(bytes,"string") не даёт побайтовый доступ
     while i < an {
-        out.push(cast(cast(byte_at(a_s, i), "int64") ^ cast(byte_at(b_s, i), "int64"), "uint8"))
+        out.push(cast(cast(a_cp[i], "int64") ^ cast(b_cp[i], "int64"), "uint8"))
         rewrite i += 1
     }
     return out
@@ -52,33 +55,44 @@ fun copy_xor(a: bytes, b: bytes) -> bytes {
 public fun mt_faketls_verify(client: bytes, secret_hex: string, hostname: string) -> bool {
     if client.len() < 5 { return false }
     set client_cp: bytes = client.cp()
-    set client_s: string = cast(client_cp, "string")
-    if byte_at(client_s, 0) != 22u8 || byte_at(client_s, 1) != 3u8 || byte_at(client_s, 2) != 1u8 { return false }
+    // прямая индексация bytes (cast в string не даёт побайтовый доступ)
+    if client_cp[0] != 22u8 || client_cp[1] != 3u8 || client_cp[2] != 1u8 { return false }
     if client.len() < TLS_RANDOM_OFF + 32 { return false }
     set key: bytes = mt_secret_key(secret_hex)
     if key.len() != 16 { return false }
-    set zeroed: bytes = copy_string_bytes(client_s, 0, client_s.len())
+    set zeroed: bytes = copy_bytes_range(client_cp, 0, client_cp.len())
     set i: int64 = 0
     while i < 32 {
         rewrite zeroed[TLS_RANDOM_OFF + i] = 0u8
         rewrite i += 1
     }
     set mac: bytes = hmac_sha256(key.cp(), zeroed.cp())
-    set got: bytes = copy_string_bytes(client_s, TLS_RANDOM_OFF, TLS_RANDOM_OFF + 32)
+    set got: bytes = copy_bytes_range(client_cp, TLS_RANDOM_OFF, TLS_RANDOM_OFF + 32)
     set check: bytes = copy_xor(mac, got)
     set check_cp: bytes = check.cp()
-    set check_s: string = cast(check_cp, "string")
     set j: int64 = 0
     while j < 28 {
-        if byte_at(check_s, j) != 0u8 { return false }
+        if check_cp[j] != 0u8 { return false }
         rewrite j += 1
     }
     if hostname.len() == 0 { return false }
-    set hs: string = client_s
-    if hs.len() < hostname.len() { return false }
+    // поиск хоста в ClientHello побайтово (slice(bytes) со string не сравнить)
+    set host_cp: bytes = cast(hostname.cp(), "bytes")
+    set hn: int64 = cast(host_cp.len(), "int64")
+    set cn: int64 = cast(client_cp.len(), "int64")
+    if cn < hn { return false }
     set p: int64 = 0
-    while p + hostname.len() <= hs.len() {
-        if slice(hs, p, p + hostname.len()) == hostname { return true }
+    while p + hn <= cn {
+        set hitv: bool = true
+        set q: int64 = 0
+        while q < hn {
+            if client_cp[p + q] != host_cp[q] {
+                rewrite hitv = false
+                break
+            }
+            rewrite q += 1
+        }
+        if hitv { return true }
         rewrite p += 1
     }
     return false
@@ -116,9 +130,9 @@ public fun mt_obfs_client_iv(frame: bytes) -> bytes {
 public fun mt_obfs_dc(frame: bytes) -> int64 {
     if frame.len() < MT_HEADER_LEN { return 0 }
     set frame_cp0: bytes = frame.cp()
-    set frame_s: string = cast(frame_cp0, "string")
-    set lo: int64 = cast(byte_at(frame_s, 60), "int64")
-    set hi: int64 = cast(byte_at(frame_s, 61), "int64")
+    // прямая индексация bytes (cast в string не даёт побайтовый доступ)
+    set lo: int64 = cast(frame_cp0[60], "int64")
+    set hi: int64 = cast(frame_cp0[61], "int64")
     set dc: int64 = lo + hi * 256
     if dc < 1 || dc > 5 { return 2 }
     return dc
@@ -126,38 +140,38 @@ public fun mt_obfs_dc(frame: bytes) -> int64 {
 
 public fun mt_obfs_open_header(frame: bytes, secret_hex: string) -> bytes {
     set frame_cp0: bytes = frame.cp()
-    set frame_s: string = cast(frame_cp0, "string")
-    if frame_s.len() != MT_HEADER_LEN { return cast("", "bytes") }
-    set material: bytes = copy_string_bytes(frame_s, MT_KEY_OFF, MT_KEY_OFF + 32)
+    set fn: int64 = cast(frame_cp0.len(), "int64")
+    if fn != MT_HEADER_LEN { return cast("", "bytes") }
+    set material: bytes = copy_bytes_range(frame_cp0, MT_KEY_OFF, MT_KEY_OFF + 32)
     set secret: bytes = mt_secret_key(secret_hex)
-    set secret_s: string = cast(secret, "string")
-    material.reserve(secret_s.len())
+    set secret_cp: bytes = secret.cp()
+    set sn: int64 = cast(secret_cp.len(), "int64")
     set i: int64 = 0
-    while i < secret_s.len() {
-        material.push(byte_at(secret_s, i))
+    while i < sn {
+        material.push(secret_cp[i])
         rewrite i += 1
     }
     set key: bytes = sha256(material.cp())
-    set iv: bytes = copy_string_bytes(frame_s, MT_IV_OFF, MT_IV_OFF + 16)
-    set payload: bytes = cast(frame_s, "bytes")
-    return aes_ctr(key, iv, payload)
+    set iv: bytes = copy_bytes_range(frame_cp0, MT_IV_OFF, MT_IV_OFF + 16)
+    return aes_ctr(key, iv, frame_cp0)
 }
 
 public fun mt_is_secure_header(clear: bytes) -> bool {
     if clear.len() < MT_HEADER_LEN { return false }
-    set clear_cp: bytes = clear.cp()
-    set clear_s: string = cast(clear_cp, "string")
-    return byte_at(clear_s, 56) == 221u8 && byte_at(clear_s, 57) == 221u8 && byte_at(clear_s, 58) == 221u8 && byte_at(clear_s, 59) == 221u8
+    // Прямая индексация bytes. cast(bytes,"string") не даёт побайтовый доступ
+    // (парсит как hex-адрес), из-за чего проверка всегда проваливалась.
+    set b: bytes = clear.cp()
+    return b[56] == 221u8 && b[57] == 221u8 && b[58] == 221u8 && b[59] == 221u8
 }
 
 public fun mt_intermediate_payload_len(clear: bytes) -> int64 {
     if clear.len() < 4 { return -1 }
     set clear_cp: bytes = clear.cp()
-    set clear_s: string = cast(clear_cp, "string")
-    set n: int64 = cast(byte_at(clear_s, 0), "int64")
-    rewrite n += cast(byte_at(clear_s, 1), "int64") * 256
-    rewrite n += cast(byte_at(clear_s, 2), "int64") * 65536
-    rewrite n += cast(byte_at(clear_s, 3), "int64") * 16777216
+    // прямая индексация bytes
+    set n: int64 = cast(clear_cp[0], "int64")
+    rewrite n += cast(clear_cp[1], "int64") * 256
+    rewrite n += cast(clear_cp[2], "int64") * 65536
+    rewrite n += cast(clear_cp[3], "int64") * 16777216
     if n < 0 || n > 16777215 { return -1 }
     return n
 }
@@ -189,10 +203,11 @@ public fun mt_server_hello_body(session_id: bytes, cipher_hi: int64, cipher_lo: 
     }
     // session id
     b.push(cast(session_id.len(), "uint8"))
-    set sid_s: string = cast(session_id, "string")
+    set sid_cp: bytes = session_id.cp()
     set k: int64 = 0
-    while k < sid_s.len() {
-        b.push(byte_at(sid_s, k))
+    set sid_n: int64 = cast(sid_cp.len(), "int64")
+    while k < sid_n {
+        b.push(sid_cp[k])
         rewrite k += 1
     }
     // cipher suite (big endian)
@@ -219,10 +234,11 @@ public fun mt_server_hello_body(session_id: bytes, cipher_hi: int64, cipher_lo: 
     b.push(29u8)
     b.push(0u8)
     b.push(32u8)
-    set pk_s: string = cast(pubkey32, "string")
+    set pk_cp: bytes = pubkey32.cp()
     rewrite k = 0
-    while k < pk_s.len() {
-        b.push(byte_at(pk_s, k))
+    set pk_n: int64 = cast(pk_cp.len(), "int64")
+    while k < pk_n {
+        b.push(pk_cp[k])
         rewrite k += 1
     }
     return b
@@ -242,10 +258,11 @@ public fun mt_server_welcome(client_random: bytes, session_id: bytes, secret_hex
     out.push(3u8)
     out.push(cast(hello_body.len() / 256, "uint8"))
     out.push(cast(hello_body.len() % 256, "uint8"))
-    set hb_s: string = cast(hello_body, "string")
+    set hb_cp: bytes = hello_body.cp()
     set i: int64 = 0
-    while i < hb_s.len() {
-        out.push(byte_at(hb_s, i))
+    set hb_n: int64 = cast(hb_cp.len(), "int64")
+    while i < hb_n {
+        out.push(hb_cp[i])
         rewrite i += 1
     }
     // CCS record: 14 03 03 00 01 01
@@ -261,20 +278,21 @@ public fun mt_server_welcome(client_random: bytes, session_id: bytes, secret_hex
     out.push(3u8)
     out.push(cast(noise_len / 256, "uint8"))
     out.push(cast(noise_len % 256, "uint8"))
-    set n_s: string = cast(noise, "string")
+    set n_cp: bytes = noise.cp()
     rewrite i = 0
-    while i < n_s.len() {
-        out.push(byte_at(n_s, i))
+    set n_n: int64 = cast(n_cp.len(), "int64")
+    while i < n_n {
+        out.push(n_cp[i])
         rewrite i += 1
     }
     // tdlib wait_hello_response: HMAC over client_random || ENTIRE RESPONSE (ServerHello + CCS + noise)
     // with server random zeroed at absolute offset 11..42 of the full out buffer.
     // WORK WITH BYTES DIRECTLY: NO cast(bytes, "string") — it parses bytes as hex address!
     set mac_input: bytes = cast("", "bytes")
-    set cr_s: string = cast(client_random, "string")
+    set cr_cp: bytes = client_random.cp()
     set j: int64 = 0
     while j < 32 {
-        mac_input.push(byte_at(cr_s, j))
+        mac_input.push(cr_cp[j])
         rewrite j += 1
     }
     set out_len: int64 = out.len()
