@@ -1,0 +1,59 @@
+// Регрессия: mt_is_secure_header должен видеть dd/dd/dd/dd в расшифрованном
+// obfuscated2-заголовке. Раньше использовался cast(bytes,"string")+byte_at,
+// который НЕ даёт побайтовый доступ — проверка не срабатывала никогда,
+// и каждый реальный клиент Telegram уходил в маску.
+load .mtproto: mt_is_secure_header
+load std.hash.common: hex_to_bytes
+
+// 64-байтный «расшифрованный» заголовок: байты 56..59 = dd dd dd dd
+#[test]
+fun secure_header_accepts_dd_marker() {
+    set h: bytes = cast("", "bytes")
+    set i: int64 = 0
+    while i < 64 {
+        h.push(0u8)
+        rewrite i += 1
+    }
+    rewrite h[56] = 221u8
+    rewrite h[57] = 221u8
+    rewrite h[58] = 221u8
+    rewrite h[59] = 221u8
+    assert(mt_is_secure_header(h.cp()) == true, "dd dd dd dd должен приниматься")
+}
+
+// тот же буфер без маркера — отвергаем
+#[test]
+fun secure_header_rejects_zeroes() {
+    set h: bytes = cast("", "bytes")
+    set i: int64 = 0
+    while i < 64 {
+        h.push(0u8)
+        rewrite i += 1
+    }
+    assert(mt_is_secure_header(h.cp()) == false, "нули отвергаются")
+}
+
+// маркер сдвинут на байт — отвергаем (проверяем именно смещение 56)
+#[test]
+fun secure_header_rejects_shifted_marker() {
+    set h: bytes = cast("", "bytes")
+    set i: int64 = 0
+    while i < 64 {
+        h.push(0u8)
+        rewrite i += 1
+    }
+    rewrite h[55] = 221u8
+    rewrite h[56] = 221u8
+    rewrite h[57] = 221u8
+    rewrite h[58] = 221u8
+    assert(mt_is_secure_header(h.cp()) == false, "сдвинутый маркер отвергается")
+}
+
+// короткий буфер — не падаем, отвергаем
+#[test]
+fun secure_header_rejects_short() {
+    set h: bytes = cast("", "bytes")
+    h.push(221u8)
+    h.push(221u8)
+    assert(mt_is_secure_header(h.cp()) == false, "короткий буфер отвергается")
+}
