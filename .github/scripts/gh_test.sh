@@ -77,7 +77,17 @@ RESULT=$(grep -c "E2E RELAY OK" client.log || true)
 echo "E2E_RESULT=$RESULT"
 [ "$RESULT" = "1" ]
 
-# 6. M3 anti-probe: wrong secret must yield a masked TLS response (restart server)
+# 6. M4 WEB relay: WS carrier -> MTProto through the proxy itself (restart server)
+kill $SRV 2>/dev/null || true
+sleep 1
+./ypwee-ci.bin ypwee.conf > server.log 2>&1 &
+SRV=$!
+sleep 2
+YPWEE_ADDR=127.0.0.1:1443 python3 tests/ws_client.py 2>&1 | tee ws.log
+WS=$(grep -c "WEB E2E OK" ws.log || true)
+echo "WS_RESULT=$WS"
+
+# 7. M3 anti-probe: wrong secret must yield a masked TLS response (restart server)
 kill $SRV 2>/dev/null || true
 sleep 1
 ./ypwee-ci.bin ypwee.conf > server2.log 2>&1 &
@@ -89,3 +99,4 @@ echo "PROBE_RESULT=$PROBE"
 kill $SRV 2>/dev/null || true
 kill $FDC 2>/dev/null || true
 [ "$PROBE" = "1" ]
+[ "$WS" = "1" ]
