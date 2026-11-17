@@ -65,6 +65,9 @@ mtproto-port = 127.0.0.1:1443
 dc-override = 127.0.0.1:9443
 CONF
 chmod +x ypwee-ci.bin
+pkill -f ypwee-ci.bin 2>/dev/null || true
+pkill -f fakedc.py 2>/dev/null || true
+sleep 2
 ./ypwee-ci.bin ypwee.conf > server.log 2>&1 &
 SRV=$!
 sleep 2
@@ -79,6 +82,10 @@ echo "E2E_RESULT=$RESULT"
 
 # 6. M4 WEB relay: WS carrier -> MTProto through the proxy itself (restart server)
 kill $SRV 2>/dev/null || true
+pkill -f ypwee-ci.bin 2>/dev/null || true
+sleep 3
+python3 tests/fakedc.py > fakedc.log 2>&1 &
+FDC=$!
 sleep 1
 ./ypwee-ci.bin ypwee.conf > server.log 2>&1 &
 SRV=$!
@@ -89,7 +96,8 @@ echo "WS_RESULT=$WS"
 
 # 7. M3 anti-probe: wrong secret must yield a masked TLS response (restart server)
 kill $SRV 2>/dev/null || true
-sleep 1
+pkill -f ypwee-ci.bin 2>/dev/null || true
+sleep 3
 ./ypwee-ci.bin ypwee.conf > server2.log 2>&1 &
 SRV=$!
 sleep 2
