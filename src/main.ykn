@@ -359,7 +359,7 @@ public class Proxy {
         if uiopt != null {
             set mtciopt = this.mt_dc_uk.get_i64(k)
             if mtciopt != null {
-                eprint("[ypwee] mt: dc readable k=" + i64_to_string(k) + "\n")
+                eprint("[ypwee] mt: dc readable\n")
                 this.mt_relay_up_to_client(mtciopt ?? 0, k)
             } else {
                 this.relay_up_to_client(uiopt ?? 0, k)
@@ -2008,12 +2008,21 @@ public class Proxy {
             this.u_ci.remove_i64(uk)
             return
         }
-        set rbuf: bytes = cast("", "bytes")
-        rbuf.reserve(65536)
+        // Читаем в буфер фиксированного размера. reserve() только резервирует
+        // ёмкость и НЕ задаёт длину: индексация rbuf[i] после read_bytes идёт
+        // за пределы логической длины -> мусор и падение. Поэтому читаем в
+        // массив uint8 и копируем ровно got байт по указателю.
+        set chunk_max: int64 = 16384
+        set sbuf: uint8[] = []
+        set zz: int64 = 0
+        while zz < chunk_max {
+            sbuf.push(0u8)
+            rewrite zz += 1
+        }
         set got: int64 = 0
         sus {
             set us2 = init TcpStream(cast(usopt ?? 0, "uint64"))
-            rewrite got = us2.read_bytes(rbuf.as_ptr(), 65536)
+            rewrite got = us2.read_bytes(sbuf.as_ptr(), chunk_max)
         } catch {
             this.drop_client(ci)
             return
@@ -2022,11 +2031,12 @@ public class Proxy {
             this.drop_client(ci)
             return
         }
+        if got > chunk_max { rewrite got = chunk_max }
         set clear: bytes = cast("", "bytes")
         clear.reserve(got)
         set i: int64 = 0
         while i < got {
-            clear.push(rbuf[i])
+            clear.push(sbuf[i])
             rewrite i += 1
         }
         // DC->proxy decrypt, then proxy->client encrypt
