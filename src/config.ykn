@@ -75,7 +75,7 @@ public class Config {
 
     // WEB (WebSocket carrier) listener config: port, TLS flag, relay host.
     fun init_web() {
-        rewrite this.web_port = "127.0.0.1:1443"
+        rewrite this.web_port = ""
         rewrite this.web_tls = false
         rewrite this.web_relay = ""
     }
