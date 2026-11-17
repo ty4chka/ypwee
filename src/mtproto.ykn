@@ -60,14 +60,14 @@ public fun mt_faketls_verify(client: bytes, secret_hex: string, hostname: string
     if client.len() < TLS_RANDOM_OFF + 32 { return false }
     set key: bytes = mt_secret_key(secret_hex)
     if key.len() != 16 { return false }
-    set zeroed: bytes = copy_bytes_range(client_cp, 0, client_cp.len())
+    set zeroed: bytes = copy_bytes_range(client_cp.cp(), 0, client_cp.len())
     set i: int64 = 0
     while i < 32 {
         rewrite zeroed[TLS_RANDOM_OFF + i] = 0u8
         rewrite i += 1
     }
     set mac: bytes = hmac_sha256(key.cp(), zeroed.cp())
-    set got: bytes = copy_bytes_range(client_cp, TLS_RANDOM_OFF, TLS_RANDOM_OFF + 32)
+    set got: bytes = copy_bytes_range(client_cp.cp(), TLS_RANDOM_OFF, TLS_RANDOM_OFF + 32)
     set check: bytes = copy_xor(mac, got)
     set check_cp: bytes = check.cp()
     set j: int64 = 0
@@ -142,7 +142,7 @@ public fun mt_obfs_open_header(frame: bytes, secret_hex: string) -> bytes {
     set frame_cp0: bytes = frame.cp()
     set fn: int64 = cast(frame_cp0.len(), "int64")
     if fn != MT_HEADER_LEN { return cast("", "bytes") }
-    set material: bytes = copy_bytes_range(frame_cp0, MT_KEY_OFF, MT_KEY_OFF + 32)
+    set material: bytes = copy_bytes_range(frame_cp0.cp(), MT_KEY_OFF, MT_KEY_OFF + 32)
     set secret: bytes = mt_secret_key(secret_hex)
     set secret_cp: bytes = secret.cp()
     set sn: int64 = cast(secret_cp.len(), "int64")
@@ -152,7 +152,7 @@ public fun mt_obfs_open_header(frame: bytes, secret_hex: string) -> bytes {
         rewrite i += 1
     }
     set key: bytes = sha256(material.cp())
-    set iv: bytes = copy_bytes_range(frame_cp0, MT_IV_OFF, MT_IV_OFF + 16)
+    set iv: bytes = copy_bytes_range(frame_cp0.cp(), MT_IV_OFF, MT_IV_OFF + 16)
     return aes_ctr(key, iv, frame_cp0)
 }
 
