@@ -55,8 +55,12 @@ ls -la ypwee-ci.bin
 
 # 5. e2e: server + python FakeTLS client
 pip install pycryptodome --quiet 2>&1 | tail -1
+pkill -f ypwee-ci.bin 2>/dev/null || true
+pkill -f fakedc.py 2>/dev/null || true
+sleep 3
 python3 tests/fakedc.py > fakedc.log 2>&1 &
 FDC=$!
+sleep 1
 cat > ypwee.conf <<'CONF'
 user = alice:changeMe1
 allow = *
@@ -65,9 +69,6 @@ mtproto-port = 127.0.0.1:1443
 dc-override = 127.0.0.1:9443
 CONF
 chmod +x ypwee-ci.bin
-pkill -f ypwee-ci.bin 2>/dev/null || true
-pkill -f fakedc.py 2>/dev/null || true
-sleep 2
 ./ypwee-ci.bin ypwee.conf > server.log 2>&1 &
 SRV=$!
 sleep 2
