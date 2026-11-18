@@ -88,6 +88,7 @@ public class Proxy {
     web_ba: bytes[]                      // buffered backend replies: plaintext bytes
     web_bl: int64[]                      // buffered backend replies: length
     // single active MT session (class-field state; indexed Aes256Ctr[] apply broke on pinned toolchain)
+    mt_active_ci: int64       // единственное активное MT-соединение (-1 = нет)
     mt_dec: Aes256Ctr?        // client->proxy stream
     mt_enc: Aes256Ctr?        // proxy->client stream
     mt_tge: Aes256Ctr?        // proxy->DC stream
@@ -134,6 +135,7 @@ public class Proxy {
         rewrite this.web_bc = []
         rewrite this.web_ba = []
         rewrite this.web_bl = []
+        rewrite this.mt_active_ci = -1
         rewrite this.mt_dec = null
         rewrite this.mt_enc = null
         rewrite this.mt_tge = null
@@ -1908,6 +1910,16 @@ public class Proxy {
         this.mt_dc.set_i64(ci, dc)
         this.mt_uk.set_i64(ci, uk)
         this.mt_dc_uk.set_i64(uk, ci)
+        // ВАЖНО: состояние CTR живёт в полях класса, поэтому активное MT-сессия
+        // может быть только одна. Если пришло новое соединение — сначала
+        // закрываем предыдущее, иначе его поток расшифруется чужим keystream
+        // и длина станет мусором ("memory allocation of 2e18 bytes failed").
+        set prevmt: int64 = this.mt_active_ci
+        if prevmt >= 0 && prevmt != ci {
+            eprint("[ypwee] mtproto: closing previous MT session\n")
+            this.drop_client(prevmt)
+        }
+        rewrite this.mt_active_ci = ci
         rewrite this.mt_dec = dec
         rewrite this.mt_enc = enc
         rewrite this.mt_tge = tg_enc
@@ -1965,6 +1977,7 @@ public class Proxy {
     }
 
     fun mt_drop_streams(uk: int64) {
+        rewrite this.mt_active_ci = -1
         rewrite this.mt_dec = null
         rewrite this.mt_enc = null
         rewrite this.mt_tge = null
