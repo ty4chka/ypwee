@@ -88,11 +88,13 @@ public class Proxy {
     web_ba: bytes[]                      // buffered backend replies: plaintext bytes
     web_bl: int64[]                      // buffered backend replies: length
     // single active MT session (class-field state; indexed Aes256Ctr[] apply broke on pinned toolchain)
-    mt_active_ci: int64       // единственное активное MT-соединение (-1 = нет)
-    mt_dec: Aes256Ctr?        // client->proxy stream
-    mt_enc: Aes256Ctr?        // proxy->client stream
-    mt_tge: Aes256Ctr?        // proxy->DC stream
-    mt_tgd: Aes256Ctr?        // DC->proxy stream
+    // Свой CTR-поток на КАЖДОЕ соединение (как в mtg): индексация по ci.
+    // Раньше здесь были одиночные поля — второй клиент затирал шифры первого.
+    mt_dec_a: Aes256Ctr[]     // ci -> client->proxy
+    mt_enc_a: Aes256Ctr[]     // ci -> proxy->client
+    mt_tge_a: Aes256Ctr[]     // ci -> proxy->DC
+    mt_tgd_a: Aes256Ctr[]     // ci -> DC->proxy
+    mt_has: bool[]            // ci -> есть ли активная MT-сессия
     last_chunk: string
     c_method_count: int64
     c_method_seen: int64
@@ -135,11 +137,11 @@ public class Proxy {
         rewrite this.web_bc = []
         rewrite this.web_ba = []
         rewrite this.web_bl = []
-        rewrite this.mt_active_ci = -1
-        rewrite this.mt_dec = null
-        rewrite this.mt_enc = null
-        rewrite this.mt_tge = null
-        rewrite this.mt_tgd = null
+        rewrite this.mt_dec_a = []
+        rewrite this.mt_enc_a = []
+        rewrite this.mt_tge_a = []
+        rewrite this.mt_tgd_a = []
+        rewrite this.mt_has = []
         rewrite this.web_l = null
         rewrite this.sock_l = null
         rewrite this.http_l = null
@@ -1202,7 +1204,9 @@ public class Proxy {
             if payload.len() == 0 { return }
             set obfsdone: int64 = this.web_obfs.get_i64(ci) ?? 0
             if obfsdone != 0 {
-                this.mt_dc_write(ci, this.mt_dec?.apply(payload.cp()) ?? cast("", "bytes"))
+                if this.mt_has[ci] {
+                    this.mt_dc_write(ci, this.mt_dec_a[ci].apply(payload.cp()))
+                }
                 return
             }
             if payload.len() < 64 {
@@ -1292,10 +1296,12 @@ public class Proxy {
                 set us = init TcpStream(cast(usopt ?? 0, "uint64"))
                 us.write_bytes(send_buf.as_ptr(), cast(send_buf.len(), "int64"))
                 us.flush()
-                rewrite this.mt_dec = dec
-                rewrite this.mt_enc = enc
-                rewrite this.mt_tge = tg_enc
-                rewrite this.mt_tgd = tg_dec
+                this.mt_ensure(ci)
+                rewrite this.mt_dec_a[ci] = dec
+                rewrite this.mt_enc_a[ci] = enc
+                rewrite this.mt_tge_a[ci] = tg_enc
+                rewrite this.mt_tgd_a[ci] = tg_dec
+                rewrite this.mt_has[ci] = true
                 this.mt_uk.set_i64(ci, uk)
                 this.web_obfs.set_i64(ci, 1)
             } catch { this.drop_client(ci) }
@@ -1339,7 +1345,8 @@ public class Proxy {
         set mapkey: int64 = mkopt ?? 0
         set sid: int64 = mapkey - ci * 16777216
         // accumulate decrypted bytes until at least one 4-byte-LE-length frame is complete
-        set acc: bytes = this.mt_tgd?.apply(data.cp()) ?? cast("", "bytes")
+        if !this.mt_has[ci] { return }
+        set acc: bytes = this.mt_tgd_a[ci].apply(data.cp())
         if acc.len() == 0 { return }
         set bi: int64 = -1
         set k: int64 = 0
@@ -1888,6 +1895,17 @@ public class Proxy {
         }
     }
 
+    // Гарантирует, что массивы состояния MT дотянуты до индекса ci.
+    fun mt_ensure(ci: int64) {
+        while this.mt_dec_a.len() <= ci {
+            this.mt_dec_a.push(init Aes256Ctr(cast("", "bytes"), cast("", "bytes")))
+            this.mt_enc_a.push(init Aes256Ctr(cast("", "bytes"), cast("", "bytes")))
+            this.mt_tge_a.push(init Aes256Ctr(cast("", "bytes"), cast("", "bytes")))
+            this.mt_tgd_a.push(init Aes256Ctr(cast("", "bytes"), cast("", "bytes")))
+            this.mt_has.push(false)
+        }
+    }
+
     fun mt_dc_addr(dc: int64) -> string {
         if this.cfg.dc_override.len() > 0 { return this.cfg.dc_override }
         if dc == 1 { return "149.154.175.53:443" }
@@ -1910,20 +1928,13 @@ public class Proxy {
         this.mt_dc.set_i64(ci, dc)
         this.mt_uk.set_i64(ci, uk)
         this.mt_dc_uk.set_i64(uk, ci)
-        // ВАЖНО: состояние CTR живёт в полях класса, поэтому активное MT-сессия
-        // может быть только одна. Если пришло новое соединение — сначала
-        // закрываем предыдущее, иначе его поток расшифруется чужим keystream
-        // и длина станет мусором ("memory allocation of 2e18 bytes failed").
-        set prevmt: int64 = this.mt_active_ci
-        if prevmt >= 0 && prevmt != ci {
-            eprint("[ypwee] mtproto: closing previous MT session\n")
-            this.drop_client(prevmt)
-        }
-        rewrite this.mt_active_ci = ci
-        rewrite this.mt_dec = dec
-        rewrite this.mt_enc = enc
-        rewrite this.mt_tge = tg_enc
-        rewrite this.mt_tgd = tg_dec
+        // Свой keystream на каждое соединение — клиенты не мешают друг другу.
+        this.mt_ensure(ci)
+        rewrite this.mt_dec_a[ci] = dec
+        rewrite this.mt_enc_a[ci] = enc
+        rewrite this.mt_tge_a[ci] = tg_enc
+        rewrite this.mt_tgd_a[ci] = tg_dec
+        rewrite this.mt_has[ci] = true
         eprint("[ypwee] mtproto: dc connected\n")
     }
 
@@ -1955,7 +1966,11 @@ public class Proxy {
                 rewrite pk += 1
             }
             rewrite pos = pos + 5 + rlen
-            set clear: bytes = this.mt_dec?.apply(payload) ?? cast("", "bytes")
+            if !this.mt_has[ci] {
+                this.drop_client(ci)
+                return
+            }
+            set clear: bytes = this.mt_dec_a[ci].apply(payload.cp())
             if clear.len() == 0 {
                 this.drop_client(ci)
                 return
@@ -1977,11 +1992,11 @@ public class Proxy {
     }
 
     fun mt_drop_streams(uk: int64) {
-        rewrite this.mt_active_ci = -1
-        rewrite this.mt_dec = null
-        rewrite this.mt_enc = null
-        rewrite this.mt_tge = null
-        rewrite this.mt_tgd = null
+        rewrite this.mt_dec_a = []
+        rewrite this.mt_enc_a = []
+        rewrite this.mt_tge_a = []
+        rewrite this.mt_tgd_a = []
+        rewrite this.mt_has = []
     }
 
     fun mt_dc_write(ci: int64, payload: bytes) {
@@ -1993,7 +2008,11 @@ public class Proxy {
             return
         }
         // proxy->DC: encrypt with the tg stream (continues after the 64-byte nonce)
-        set wire: bytes = this.mt_tge?.apply(payload) ?? cast("", "bytes")
+        if !this.mt_has[ci] {
+            this.drop_client(ci)
+            return
+        }
+        set wire: bytes = this.mt_tge_a[ci].apply(payload.cp())
         if wire.len() == 0 {
             this.drop_client(ci)
             return
@@ -2053,12 +2072,16 @@ public class Proxy {
             rewrite i += 1
         }
         // DC->proxy decrypt, then proxy->client encrypt
-        set dc_clear: bytes = this.mt_tgd?.apply(clear) ?? cast("", "bytes")
+        if !this.mt_has[ci] {
+            this.drop_client(ci)
+            return
+        }
+        set dc_clear: bytes = this.mt_tgd_a[ci].apply(clear.cp())
         if dc_clear.len() == 0 {
             this.drop_client(ci)
             return
         }
-        set cipher: bytes = this.mt_enc?.apply(dc_clear) ?? cast("", "bytes")
+        set cipher: bytes = this.mt_enc_a[ci].apply(dc_clear.cp())
         if cipher.len() == 0 {
             this.drop_client(ci)
             return
