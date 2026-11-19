@@ -226,15 +226,10 @@ public class Proxy {
         if this.c_id.len() >= this.cfg.max_conns { return }
                 set c = listener.accept()
                 c.set_nonblocking(true)
-        set ci: int64 = 0
-        if this.free_ids.len() > 0 {
-            rewrite ci = this.free_ids.pop()
-        } else {
-            rewrite this.next_key += 1
-            rewrite ci = this.next_key
-        }
+        set ci: int64 = this.alloc_ci()
         this.poller.add_stream(ref c, POLL_READABLE, cast(ci, "uint64"))
-        this.push_client(ci, cast(c.id, "int64"), is_socks)
+        set kind: int64 = if is_socks { 1 } else { 0 }
+        this.push_client(ci, ci, cast(c.id, "int64"), kind)
         // listener — тоже oneshot polling event
         this.poller.remove_listener(ref listener)
         set lkey: uint64 = if is_socks { KEY_SOCKS_L } else { KEY_HTTP_L }
@@ -251,42 +246,43 @@ public class Proxy {
         if this.c_id.len() >= this.cfg.max_conns { return }
         set c = listener.accept()
         c.set_nonblocking(true)
-        rewrite this.next_key += 1
-        set k: int64 = this.next_key
-        this.poller.add_stream(ref c, POLL_READABLE, cast(k, "uint64"))
-        rewrite this.cis += 1
-        set ci: int64 = this.cis
-        this.c_key_of.set_i64(k, ci)
-        this.c_pollkey.set_i64(ci, k)
-        this.c_id.set_i64(ci, cast(c.id, "int64"))
-        this.c_sock.set_i64(ci, 2)
-        this.c_state.set_i64(ci, 20)
-        this.c_upkey.set_i64(ci, 0)
-        this.c_idletick.set_i64(ci, this.tick)
-        this.mt_dc.set_i64(ci, 0)
-        this.mt_uk.set_i64(ci, 0)
-        this.mt_phase.set_i64(ci, 0)
-        this.mt_hello_len.set_i64(ci, -1)
+        set ci: int64 = this.alloc_ci()
+        this.poller.add_stream(ref c, POLL_READABLE, cast(ci, "uint64"))
+        this.push_client(ci, ci, cast(c.id, "int64"), 2)
         this.poller.remove_listener(ref listener)
         this.poller.add_listener(ref listener, POLL_READABLE, KEY_MT_L)
     }
-    fun push_client(k: int64, id: int64, is_socks: bool) {
-        rewrite this.cis += 1
-        set ci: int64 = this.cis
+    // Единая точка регистрации клиента. sock_kind: 1=SOCKS5, 0=HTTP, 2=MTProto.
+    fun push_client(k: int64, ci: int64, id: int64, sock_kind: int64) {
         this.c_key_of.set_i64(k, ci)
         this.c_pollkey.set_i64(ci, k)
         this.c_id.set_i64(ci, id)
-        if is_socks {
+        this.c_sock.set_i64(ci, sock_kind)
+        if sock_kind == 1 {
             this.c_state.set_i64(ci, 1)
-            this.c_sock.set_i64(ci, 1)
+        } elif sock_kind == 2 {
+            this.c_state.set_i64(ci, 20)
         } else {
             this.c_state.set_i64(ci, 6)
-            this.c_sock.set_i64(ci, 0)
         }
         this.c_upkey.set_i64(ci, 0)
         this.c_idletick.set_i64(ci, this.tick)
         this.c_acc.set(i64_to_string(ci), "")
+        if sock_kind == 2 {
+            this.mt_dc.set_i64(ci, 0)
+            this.mt_uk.set_i64(ci, 0)
+            this.mt_phase.set_i64(ci, 0)
+            this.mt_hello_len.set_i64(ci, -1)
+        }
+    }
 
+    // Берёт id из free-list или выдаёт новый.
+    fun alloc_ci() -> int64 {
+        if this.free_ids.len() > 0 {
+            return this.free_ids.pop()
+        }
+        rewrite this.next_key += 1
+        return this.next_key
     }
 
     fun c_find(key: int64) -> int64 {
@@ -345,6 +341,7 @@ public class Proxy {
         this.web_sid_uk.remove_i64(ci)
         this.web_welcomed.remove_i64(ci)
         this.web_obfs.remove_i64(ci)
+        this.web_buf_drop(ci)
         
         // MT Upstream teardown
         set mukopt = this.mt_uk.get_i64(ci)
@@ -358,9 +355,36 @@ public class Proxy {
         this.free_ids.push(ci)
     }
 
+    // Удаляет слот клиента из параллельных массивов web_bc/web_ba/web_bl.
+    // Без этого мёртвый клиент держит свой буфер (до 64 КБ) навсегда.
+    fun web_buf_drop(ci: int64) {
+        set n: int64 = this.web_bc.len()
+        set i: int64 = 0
+        set found: int64 = -1
+        while i < n {
+            if this.web_bc[i] == ci { rewrite found = i }
+            rewrite i += 1
+        }
+        if found < 0 { return }
+        set j: int64 = found + 1
+        while j < n {
+            rewrite this.web_bc[found] = this.web_bc[j]
+            rewrite this.web_ba[found] = this.web_ba[j].cp()
+            rewrite this.web_bl[found] = this.web_bl[j]
+            rewrite found += 1
+            rewrite j += 1
+        }
+        while this.web_bc.len() > found {
+            this.web_bc.pop()
+            this.web_ba.pop()
+            this.web_bl.pop()
+        }
+    }
+
     fun expire() {
-        // обходим все выданные ci; удаляем только живые записи
-        set ci: int64 = this.cis
+        // Обходим диапазон выданных id. free_ids означает, что дырки возможны,
+        // поэтому проверяем наличие записи в c_state (пропускаем свободные).
+        set ci: int64 = this.next_key
         while ci >= 1 {
             set stopt = this.c_state.get_i64(ci)
             if stopt != null {
@@ -956,22 +980,9 @@ public class Proxy {
         if this.c_id.len() >= this.cfg.max_conns { return }
         set c = listener.accept()
         c.set_nonblocking(true)
-        rewrite this.next_key += 1
-        set k: int64 = this.next_key
-        this.poller.add_stream(ref c, POLL_READABLE, cast(k, "uint64"))
-        rewrite this.cis += 1
-        set ci: int64 = this.cis
-        this.c_key_of.set_i64(k, ci)
-        this.c_pollkey.set_i64(ci, k)
-        this.c_id.set_i64(ci, cast(c.id, "int64"))
-        this.c_sock.set_i64(ci, 2)
-        this.c_state.set_i64(ci, 20)
-        this.c_upkey.set_i64(ci, 0)
-        this.c_idletick.set_i64(ci, this.tick)
-        this.mt_dc.set_i64(ci, 0)
-        this.mt_uk.set_i64(ci, 0)
-        this.mt_phase.set_i64(ci, 0)
-        this.mt_hello_len.set_i64(ci, -1)
+        set ci: int64 = this.alloc_ci()
+        this.poller.add_stream(ref c, POLL_READABLE, cast(ci, "uint64"))
+        this.push_client(ci, ci, cast(c.id, "int64"), 2)
         this.poller.remove_listener(ref listener)
         this.poller.add_listener(ref listener, POLL_READABLE, KEY_WEB_L)
     }
