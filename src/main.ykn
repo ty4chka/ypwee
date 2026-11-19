@@ -338,10 +338,11 @@ public class Proxy {
         this.mt_dc.remove_i64(ci)
         this.mt_phase.remove_i64(ci)
         this.mt_hello_len.remove_i64(ci)
-        this.mt_has[ci] = false
+        if ci >= 0 && ci < this.mt_has.len() {
+            rewrite this.mt_has[ci] = false
+        }
         
         this.web_sid_uk.remove_i64(ci)
-        this.web_uk_sid.remove_i64(ci)
         this.web_welcomed.remove_i64(ci)
         this.web_obfs.remove_i64(ci)
         
@@ -1227,7 +1228,7 @@ public class Proxy {
             if payload.len() == 0 { return }
             set obfsdone: int64 = this.web_obfs.get_i64(ci) ?? 0
             if obfsdone != 0 {
-                if this.mt_has[ci] {
+                if this.mt_alive(ci) {
                     this.mt_dc_write(ci, this.mt_dec_a[ci].apply(payload.cp()))
                 }
                 return
@@ -1368,7 +1369,7 @@ public class Proxy {
         set mapkey: int64 = mkopt ?? 0
         set sid: int64 = mapkey - ci * 16777216
         // accumulate decrypted bytes until at least one 4-byte-LE-length frame is complete
-        if !this.mt_has[ci] { return }
+        if !this.mt_alive(ci) { return }
         set acc: bytes = this.mt_tgd_a[ci].apply(data.cp())
         if acc.len() == 0 { return }
         set bi: int64 = -1
@@ -1918,6 +1919,14 @@ public class Proxy {
         }
     }
 
+    // Безопасная проверка: жива ли MT-сессия у клиента ci.
+    // Массивы растут только в mt_ensure (при старте MT), а drop_client
+    // вызывается и для SOCKS5/HTTP-клиентов — индекс может быть за границей.
+    fun mt_alive(ci: int64) -> bool {
+        if ci < 0 || ci >= this.mt_has.len() { return false }
+        return this.mt_has[ci]
+    }
+
     // Гарантирует, что массивы состояния MT дотянуты до индекса ci.
     fun mt_ensure(ci: int64) {
         while this.mt_dec_a.len() <= ci {
@@ -1989,7 +1998,7 @@ public class Proxy {
                 rewrite pk += 1
             }
             rewrite pos = pos + 5 + rlen
-            if !this.mt_has[ci] {
+            if !this.mt_alive(ci) {
                 this.drop_client(ci)
                 return
             }
@@ -2031,7 +2040,7 @@ public class Proxy {
             return
         }
         // proxy->DC: encrypt with the tg stream (continues after the 64-byte nonce)
-        if !this.mt_has[ci] {
+        if !this.mt_alive(ci) {
             this.drop_client(ci)
             return
         }
@@ -2095,7 +2104,7 @@ public class Proxy {
             rewrite i += 1
         }
         // DC->proxy decrypt, then proxy->client encrypt
-        if !this.mt_has[ci] {
+        if !this.mt_alive(ci) {
             this.drop_client(ci)
             return
         }
