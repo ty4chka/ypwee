@@ -279,7 +279,9 @@ public class Proxy {
     // Берёт id из free-list или выдаёт новый.
     fun alloc_ci() -> int64 {
         if this.free_ids.len() > 0 {
-            return this.free_ids.pop()
+            // pop() возвращает T? — разворачиваем; len()>0 гарантирует значение
+            set opt = this.free_ids.pop()
+            return opt ?? 0
         }
         rewrite this.next_key += 1
         return this.next_key
