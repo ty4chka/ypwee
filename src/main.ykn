@@ -51,6 +51,7 @@ public class Proxy {
     store: UserStore
     poller: SocketPoller
     next_key: int64
+    next_uk: int64
     free_ids: int64[]
     tick: int64
     sec_window: int64
@@ -109,6 +110,7 @@ public class Proxy {
         rewrite this.store = init UserStore(cfg.users.cp())
         rewrite this.poller = init SocketPoller()
         rewrite this.next_key = 1000
+        rewrite this.next_uk = 1000000
         rewrite this.free_ids = []
         rewrite this.tick = 0
         rewrite this.sec_window = 0
@@ -277,6 +279,13 @@ public class Proxy {
     }
 
     // Берёт id из free-list или выдаёт новый.
+    // Отдельный счётчик для upstream-ключей: они живут в том же poller-пространстве,
+    // что и клиентские, поэтому обязаны быть в непересекающемся диапазоне.
+    fun alloc_uk() -> int64 {
+        rewrite this.next_uk += 1
+        return this.next_uk
+    }
+
     fun alloc_ci() -> int64 {
         if this.free_ids.len() > 0 {
             // pop() возвращает T? — разворачиваем; len()>0 гарантирует значение
@@ -760,8 +769,7 @@ public class Proxy {
     }
 
     fun start_relay(ci: int64, upstream: TcpStream) {
-        rewrite this.next_key += 1
-        set uk: int64 = this.next_key
+        set uk: int64 = this.alloc_uk()
         this.poller.add_stream(ref upstream, POLL_READABLE, cast(uk, "uint64"))
         this.c_upkey.set_i64(ci, uk)
         this.c_state.set_i64(ci, 10)
@@ -1209,8 +1217,7 @@ public class Proxy {
             sus {
                 set up = tcp_connect(backend, this.cfg.hs_timeout_s * 1000)
                 up.set_nonblocking(true)
-                rewrite this.next_key += 1
-                set uk: int64 = this.next_key
+                set uk: int64 = this.alloc_uk()
                 this.poller.add_stream(ref up, POLL_READABLE, cast(uk, "uint64"))
                 this.c_upkey.set_i64(ci, uk)
                 this.u_id.set_i64(uk, cast(up.id, "int64"))
@@ -1962,8 +1969,7 @@ public class Proxy {
     }
 
     fun start_mt_relay(ci: int64, upstream: TcpStream, dec: Aes256Ctr, enc: Aes256Ctr, tg_enc: Aes256Ctr, tg_dec: Aes256Ctr, dc: int64) {
-        rewrite this.next_key += 1
-        set uk: int64 = this.next_key
+        set uk: int64 = this.alloc_uk()
         this.poller.add_stream(ref upstream, POLL_READABLE, cast(uk, "uint64"))
         this.c_upkey.set_i64(ci, uk)
         this.c_state.set_i64(ci, 22)
